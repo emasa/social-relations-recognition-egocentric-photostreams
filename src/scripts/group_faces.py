@@ -1,157 +1,134 @@
 # !/usr/bin/env python
 # -*- coding: utf-8 -*-
+
 import argparse
-import glob
 import json
 import logging
 import os
-from collections import namedtuple
 
-import cognitive_face as CF
+import cognitive_face as cf
 
 from egosocial import config
-from egosocial.core.types import Face
-
-IdentifiedFace = namedtuple('IdenfiedFace',
-                            ('segment_id', 'image_name', 'face_id', 'group_id'))
-
-
-def list_files(directory, file_pattern='*.txt'):
-    '''
-    List detection files for social segments.
-    :param directory: base directory containing detection files. Must be in the
-    social segments tree structure: directory / segm_id / {file}
-
-    :return: list of detection files
-    '''
-    segments_tree = os.path.join('*', file_pattern)
-    return glob.glob(os.path.join(directory, segments_tree))
-
-
-def get_segment_id(file_path):
-    segment_id = os.path.basename(os.path.dirname(file_path))
-    return segment_id
+from egosocial.core.types import Face, IdentifiedFace
+from egosocial.faces.clustering import MCSFaceClustering
+from egosocial.utils.filesystem import check_directory, create_directory
+from egosocial.utils.filesystem import list_files_grouped_by_segment
+from egosocial.utils.logging import setup_logging
 
 
 class FaceGroupHelper:
+    """ Helper class to group faces in social segments from filesystem.
+    """
 
-    def __init__(self):
-        self._setup_log()
+    def __init__(self, face_clustering=None):
+        """
 
-    def _get_files_from_directory(self, directory):
-        self._log.debug('Listing files')
-        return ((file_path, get_segment_id(file_path)) for file_path in
-                list_files(directory, file_pattern='*.json'))
+        Args:
+            :param face_clustering: face clustering method (callback).
+        """
+        # use Microsoft Cognitive Services by default.
+        self._face_clustering = MCSFaceClustering() if face_clustering is None \
+            else face_clustering
+        # set up logging
+        self._log = logging.getLogger(os.path.basename(__file__))
 
     def process_directory(self, input_dir, output_dir):
-        self._log.info('Starting face detection')
-        # sanity check for input_dir
-        self._check_required_directory(input_dir, 'Input')
-        # generate output directory if necessary
-        self._create_directory(output_dir, 'Output', warn_if_exists=True)
+        """ Group faces in social segments.
 
-        all_id_faces = []
-        for file_path, segm_id in self._get_files_from_directory(input_dir):
+        Args:
+            :param input_dir: directory containing social segment folders.
+            :param output_dir: directory where to store face groups. It creates
+            the social segments folder structure.
+        """
+        self._log.info('Starting face clustering')
+        # sanity check for input_dir
+        check_directory(input_dir, 'Input')
+        # generate output directory if necessary
+        create_directory(output_dir, 'Output', warn_if_exists=True)
+
+        for detection_files, segm_id in self._get_detections(input_dir):
             # skip segments, TODO: just for debugging
             # if segm_id not in ['84']:
             #    self._log.warning('Skip segment. %s' % segm_id)
             #    continue
+            ifaces = self._load_ifaces_from_segment(detection_files)
+            clustering_result = self._process_batch(ifaces)
 
-            image_name = os.path.splitext(os.path.basename(file_path))[
-                             0] + '.jpg'
-            faces = self._load_input(file_path)
-            id_faces = [
-                IdentifiedFace(segm_id, image_name, face.params['faceId'], None)
-                for face in faces]
+            # create directory
+            segm_output_dir = os.path.join(output_dir, segm_id)
+            create_directory(segm_output_dir, 'Segment', warn_if_exists=True)
+            # save results
+            output_path = self._get_output_path(output_dir=segm_output_dir,
+                                                name='grouped_faces',
+                                                ext='.json')
+            self._store(clustering_result, output_path)
 
-            all_id_faces.extend(id_faces)
+    def _get_detections(self, directory):
+        """ for each segment list detected faces.
 
-        self.process_batch(all_id_faces, output_dir)
+        Args:
+            :param input_dir: directory containing social segment folders.
+            Detection files are expected in json format.
+        Returns:
+            :return: lazy iterator of list of detected faces grouped by segment.
+        """
+        self._log.debug('Listing detection files')
+        return list_files_grouped_by_segment(directory, file_pattern='*.json',
+                                             output_segment_id=True)
 
-    def process_batch(self, id_faces, output_dir):
-        self._log.debug('Process batch of images')
-
-        # run _group_faces
-        faces_by_similarity = self._group_faces(id_faces)
-        self._log.debug('Found {} groups'.format(len(faces_by_similarity)))
-
-        output_path = self._get_output_path(output_dir=output_dir,
-                                            prefix='group')
-        # save results
-        self._store(faces_by_similarity, output_path)
-
-    def _get_output_path(self, **kwargs):
-        # output path template
-        terms = ('{output_dir}', '{prefix}{ext}')
-        output_path_tpl = os.path.join(*terms)
-        kwargs = dict(output_dir=kwargs['output_dir'], prefix=kwargs['prefix'],
-                      ext='.json')
-        return output_path_tpl.format(**kwargs)
+    def _load_ifaces_from_segment(self, detection_files):
+        """ Load faces from a set of detection files.
+        Args:
+            :param detection_files: list of detection file paths.
+        Returns:
+            :return: identified faces.
+        """
+        return [
+            IdentifiedFace(bbox=face.bbox, image_name=face.image_name,
+                           face_id=face.face_id, group_id=None)
+            for file_path in detection_files
+            for face in self._load_input(file_path)
+        ]
 
     def _load_input(self, detection_path):
+        """ Load faces from detection file.
+
+        Args:
+            :param detection_path: path to detection file.
+        Returns:
+            :return: faces.
+        """
         self._log.debug('Loading detection file %s' % detection_path)
         with open(detection_path) as json_file:
             face_detection = json.load(json_file)
 
-        faces = [Face(**face_asdict) for face_asdict in face_detection]
+        return [Face(**face_asdict) for face_asdict in face_detection]
 
-        return faces
+    def _process_batch(self, ifaces):
+        # TODO: add docstring
+        return self._face_clustering(ifaces)
 
-    def _group_faces(self, id_faces):
-        self._log.debug('Running face grouping')
-        result = CF.face.group([iface.face_id for iface in id_faces])
-        face_id_map = {iface.face_id: iface for iface in id_faces}
+    def _get_output_path(self, **kwargs):
+        # TODO: add docstring
+        # TODO: precompute output template during init or in static attribute
+        # output path template
+        terms = ('{output_dir}', '{name}{ext}')
+        output_path_tpl = os.path.join(*terms)
+        return output_path_tpl.format(**kwargs)
 
-        def set_group_id(iface, group_id):
-            return IdentifiedFace(*iface[:-1], group_id=group_id)
+    def _store(self, clusters, output_path):
+        # TODO: add docstring
+        self._log.debug('Storing face groups in %s' % output_path)
 
-        groups = [
-            [set_group_id(face_id_map[face_id], group_id) for face_id in group]
-            for group_id, group in enumerate(result['groups'])]
-        groups.append(
-            [set_group_id(face_id_map[face_id], 'messyGroup') for face_id in
-             result['messyGroup']])
+        clustering_dict = {
+            'groups': [[iface._asdict() for iface in group]
+                       for group in clusters[0]],
+            'messyGroup': [iface._asdict() for iface in clusters[1]],
+            'unknownGroup': [iface._asdict() for iface in clusters[2]]
+        }
 
-        return groups
-
-    def _store(self, groups, output_path):
-        self._log.debug('Saving face groups %s' % output_path)
-        ifaces_as_dict = [[iface._asdict() for iface in group] for group in
-                          groups]
         with open(output_path, 'w') as json_file:
-            json.dump(ifaces_as_dict, json_file)
-
-    def _setup_log(self):
-        self._log = logging.getLogger(__file__)
-        self._log.setLevel(logging.DEBUG)
-        # create console handler
-        ch = logging.StreamHandler()
-        # create formatter and add it to the handlers
-        formatter = logging.Formatter(
-            '%(asctime)s - %(name)s - %(levelname)s - %(message)s')
-        ch.setFormatter(formatter)
-        # add the handlers to logger
-        self._log.addHandler(ch)
-
-    def _check_required_directory(self, directory, description=''):
-        error_msg_fmt = '%s directory does not exist %s'
-        if not (os.path.exists(directory) and os.path.isdir(directory)):
-            error_msg = error_msg_fmt % (description, directory)
-            self._log.error(error_msg)
-            raise NotADirectoryError(error_msg)
-
-        self._log.debug('%s directory: %s' % (description, directory))
-
-    def _create_directory(self, directory, description='',
-                          warn_if_exists=False):
-        # generate directory if necessary
-        if not (os.path.exists(directory) and os.path.isdir(directory)):
-            self._log.debug(
-                'Creating %s directory %s' % (description, directory))
-            os.makedirs(directory)
-        elif warn_if_exists:
-            self._log.warning(
-                '%s directory already exists %s' % (description, directory))
+            json.dump(clustering_dict, json_file)
 
 
 def main():
@@ -165,14 +142,12 @@ def main():
 
     args = parser.parse_args()
 
+    setup_logging(config.LOGGING_CONFIG)
+
     with open(config.CREDENTIALS_FILE) as credentials_file:
         credentials = json.load(credentials_file)
-        KEY = credentials['azure_face_api_key_2']
-        CF.Key.set(KEY)
-
-        DEFAULT_BASE_URL = 'https://westcentralus.api.cognitive.microsoft.com' \
-                           '/face/v1.0/'
-        CF.BaseUrl.set(DEFAULT_BASE_URL)
+        cf.Key.set(credentials['azure_face_api_key'])
+        cf.BaseUrl.set(config.FACE_API_BASE_URL)
 
     helper = FaceGroupHelper()
     helper.process_directory(args.input_dir, args.output_dir)
