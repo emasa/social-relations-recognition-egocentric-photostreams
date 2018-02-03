@@ -1,14 +1,11 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
+import os
 
 import cognitive_face as CF
 
 from ..core.types import BBox, Face
 from ..utils.concurrency import RatedSemaphore
-
-DEFAULT_BASE_URL = 'https://westcentralus.api.cognitive.microsoft.com/face/v1' \
-                   '.0/'
-CF.BaseUrl.set(DEFAULT_BASE_URL)
 
 FACIAL_ATTRIBUTES = ['age', 'gender', 'headPose', 'smile', 'facialHair',
                      'glasses', 'emotion', 'hair', 'makeup', 'occlusion',
@@ -41,19 +38,20 @@ class MCSFaceDetector:
             # up to 10 requests per second
             self._rate_limit = RatedSemaphore(value=10, period=1)
 
-    def _detect(self, image):
+    def _detect(self, image_path):
         '''
         :param image:
         :return:
         '''
-        response = CF.face.detect(image, landmarks=self._landmarks,
+        response = CF.face.detect(image_path, landmarks=self._landmarks,
                                   attributes=self._extra_attrs)
         faces = []
 
-        for face_info in response:
-            bbox_dict = face_info['faceRectangle']
+        for face_dict in response:
+            bbox_dict = face_dict['faceRectangle']
             bbox = BBox(**bbox_dict)
-            face = Face(bbox=bbox, params=face_info)
+            face = Face(bbox=bbox, image_name=os.path.basename(image_path),
+                        face_id=face_dict['faceId'], params=face_dict)
             faces.append(face)
 
         return faces

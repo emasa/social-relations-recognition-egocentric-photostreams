@@ -2,6 +2,7 @@
 # -*- coding: utf-8 -*-
 
 import json
+import os
 
 from ..core.types import BBox, Face
 
@@ -56,22 +57,20 @@ def load_faces_from_facedocker_format(detection_file):
     faces = []
 
     with open(detection_file) as faces_text:
-        for face_line in faces_text:
-            image_name, *coordinates, confidence_score = face_line.strip(
-
-            ).split()
+        for rank_id, face_line in enumerate(faces_text):
+            image_name, *coordinates, confidence = face_line.strip().split()
 
             # rounds float number to the next smaller integer
             x_min, y_min, x_max, y_max = [int(float(c)) for c in coordinates]
             # convert coordinates to bbox format
-            top, left, height, width = y_min, x_min, y_max - y_min, x_max - \
-                                       x_min
+            top, left, height, width = y_min, x_min, y_max - y_min, x_max - x_min
             bbox = BBox(top, left, height, width)
             # keep extra parameters
-            params = {'image_name': image_name,
-                      'confidence_score': float(confidence_score)}
+            params = {'confidence': float(confidence)}
 
-            face = Face(bbox=bbox, params=params)
+            face_id = '{}_{}'.format(os.path.splitext(image_name)[0], rank_id)
+            face = Face(bbox=bbox, image_name=image_name, face_id=face_id,
+                        params=params)
             faces.append(face)
 
     return faces
