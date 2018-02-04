@@ -6,6 +6,10 @@ import collections
 BBox = collections.namedtuple('BBox', ('top', 'left', 'height', 'width'))
 
 
+def create_bbox(top=None, left=None, height=None, width=None):
+    return BBox(top, left, height, width)
+
+
 def bbox_from_json(bbox_asjson):
     if isinstance(bbox_asjson, dict):
         bbox_dict = bbox_asjson
@@ -15,12 +19,23 @@ def bbox_from_json(bbox_asjson):
     return BBox(**bbox_dict)
 
 
+def bbox_to_json(bbox):
+    return bbox._asdict()
+
+
+BBox.create = create_bbox
 BBox.from_json = bbox_from_json
+BBox.to_json = bbox_to_json
+
 
 Face = collections.namedtuple('Face', ('bbox',
                                        'image_name',
                                        'face_id',
                                        'params'))
+
+
+def create_face(bbox=None, image_name=None, face_id=None, params=None):
+    return Face(bbox, image_name, face_id, params)
 
 
 def face_from_json(face_asjson):
@@ -29,10 +44,24 @@ def face_from_json(face_asjson):
     else:
         face_dict = dict(zip(('bbox', 'image_name', 'face_id', 'params'), face_asjson))
 
-    face_dict['bbox'] = BBox.from_json(face_dict['bbox'])
+    if face_dict['bbox']:
+        face_dict['bbox'] = BBox.from_json(face_dict['bbox'])
 
     return IdentifiedFace(**face_dict)
 
+
+def face_to_json(face):
+    face_dict = face._asdict()
+
+    if face_dict['bbox']:
+        face_dict['bbox'] = BBox.to_json(face_dict['bbox'])
+
+    return face_dict
+
+
+Face.create = create_face
+Face.from_json = face_from_json
+Face.to_json = face_to_json
 
 Person = collections.namedtuple('Person', ('bbox', 'face', 'params'))
 
@@ -42,10 +71,12 @@ IdentifiedFace = collections.namedtuple('IdentifiedFace', ('bbox',
                                                            'face_id',
                                                            'group_id'))
 
+
 def create_identified_face(bbox=None, image_name=None, segment_id=None,
                            face_id=None, group_id=None):
 
     return IdentifiedFace(bbox, image_name, segment_id, face_id, group_id)
+
 
 def identified_face_from_json(iface_asjson):
     if isinstance(iface_asjson, dict):
@@ -54,20 +85,34 @@ def identified_face_from_json(iface_asjson):
         iface_dict = dict(zip(('bbox', 'image_name', 'face_id', 'segment_id',
                                'group_id'), iface_asjson))
 
-    iface_dict['bbox'] = BBox.from_json(iface_dict['bbox'])
+    if iface_dict['bbox']:
+        iface_dict['bbox'] = BBox.from_json(iface_dict['bbox'])
 
     return IdentifiedFace(**iface_dict)
 
 
-IdentifiedFace.from_json = identified_face_from_json
+def identified_face_to_json(iface):
+    iface_dict = iface._asdict()
+
+    if iface_dict['bbox']:
+        iface_dict['bbox'] = BBox.to_json(iface_dict['bbox'])
+
+    return iface_dict
+
+
 IdentifiedFace.create = create_identified_face
+IdentifiedFace.from_json = identified_face_from_json
+IdentifiedFace.to_json = identified_face_to_json
+
 
 FaceClustering = collections.namedtuple('FaceClustering', ('groups',
                                                            'messyGroup',
                                                            'unknownGroup'))
 
+
 def create_face_clustering(groups=None, messyGroup=None, unknownGroup=None):
     return FaceClustering(groups, messyGroup, unknownGroup)
+
 
 def face_clustering_from_json(groups_asjson):
 
@@ -87,5 +132,18 @@ def face_clustering_from_json(groups_asjson):
                             for iface in groups_dict['unknownGroup']]
            )
 
+
+def face_clustering_to_json(face_clustering):
+    return dict(
+            groups=[[IdentifiedFace.to_json(iface) for iface in group]
+                    for group in face_clustering.groups],
+            messyGroup=[IdentifiedFace.to_json(iface)
+                        for iface in face_clustering.messyGroup],
+            unknownGroup=[IdentifiedFace.to_json(iface)
+                          for iface in face_clustering.unknownGroup]
+            )
+
+
 FaceClustering.create = create_face_clustering
 FaceClustering.from_json = face_clustering_from_json
+FaceClustering.to_json = face_clustering_to_json

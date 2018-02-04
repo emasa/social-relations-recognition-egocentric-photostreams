@@ -5,9 +5,11 @@ import glob
 import logging
 import os
 
+
 def list_segments(directory):
     for root, segments, files in os.walk(directory):
         return segments
+
 
 def list_files_grouped_by_segment(directory, file_pattern='*.txt',
                                   output_segment_id=False):
@@ -24,6 +26,7 @@ def list_files_grouped_by_segment(directory, file_pattern='*.txt',
         files = glob.glob(os.path.join(segm_path, file_pattern))
         yield (files, segm) if output_segment_id else files
 
+
 def list_files(directory, file_pattern='*.txt', output_segment_id=False):
     '''
     List files in social segments.
@@ -38,6 +41,7 @@ def list_files(directory, file_pattern='*.txt', output_segment_id=False):
         for file in files:
             yield (file, segm) if output_segment_id else file
 
+
 def list_files_in_segment(directory, segment_id, file_pattern='*.txt'):
     segment_dir = os.path.join(directory, segment_id)
     check_directory(segment_dir, 'Segment')
@@ -45,23 +49,29 @@ def list_files_in_segment(directory, segment_id, file_pattern='*.txt'):
 
     return files
 
+
 def check_directory(directory, description=''):
     log = logging.getLogger(os.path.basename(__name__))
-    if not (os.path.exists(directory) and os.path.isdir(directory)):
-        error_msg_fmt = '%s directory does not exist %s'
-        error_msg = error_msg_fmt % (description, directory)
+    if not (directory and os.path.isdir(directory)):
+        error_msg_fmt = '{} directory does not exist {}'
+        error_msg = error_msg_fmt.format(description, directory)
         log.error(error_msg)
         raise NotADirectoryError(error_msg)
-        log.debug('%s directory: %s' % (description, directory))
     else:
-        log.debug('Checked %s directory: %s' % (description, directory))
+        log.debug('Checked {} directory: {}'.format(description, directory))
 
 
 def create_directory(directory, description='', warn_if_exists=False):
     log = logging.getLogger(os.path.basename(__name__))
     # generate directory if necessary
-    if not (os.path.exists(directory) and os.path.isdir(directory)):
-        log.debug('Creating %s directory %s' % (description, directory))
+    if not directory:
+        error_msg_fmt = '{} directory is invalid {}'
+        error_msg = error_msg_fmt.format(description, directory)
+        raise NotADirectoryError(error_msg)
+
+    if not os.path.isdir(directory):
+        log.debug('Creating {} directory {}'.format(description, directory))
         os.makedirs(directory)
     elif warn_if_exists:
-        log.warning('%s directory already exists %s' % (description, directory))
+        log.warning('{} directory already exists {}'.format(description,
+                                                            directory))
