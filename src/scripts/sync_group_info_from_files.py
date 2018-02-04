@@ -16,8 +16,7 @@ from egosocial.utils.logging import setup_logging
 class SyncGroupInfoFromFilesHelper:
     """ Helper class to synchronize face groups in social segments.
     """
-    def __init__(self, input_dir=None, output_dir=None,
-                       groups_file_name=None):
+    def __init__(self, input_dir=None, output_dir=None, groups_file_name=None):
         """
 
         Args:
@@ -45,8 +44,7 @@ class SyncGroupInfoFromFilesHelper:
         face_clustering = self._get_face_clustering(segm_input_dir)
 
         output_path = self._get_output_path(output_dir=segm_output_dir,
-                                            file_name=self._groups_file_name,
-                                            ext='.json')
+                                            file_name=self._groups_file_name)
         self._store(face_clustering, output_path)
 
     def process_all(self):
@@ -86,7 +84,7 @@ class SyncGroupInfoFromFilesHelper:
         # TODO: add docstring
         # TODO: precompute output template during init or in static attribute
         # output path template
-        terms = ('{output_dir}', '{file_name}{ext}')
+        terms = ('{output_dir}', '{file_name}')
         output_path_tpl = os.path.join(*terms)
         return output_path_tpl.format(**kwargs)
 
@@ -107,10 +105,9 @@ def main():
     parser.add_argument('--output_dir', required=True,
                         help='Directory where to store the groups information '
                              'inferred from the input files split.')
-    parser.add_argument('--groups_file_name', default='grouped_faces',
-                        help='File name where to store the groups information.'
-                             'The file name may not include the file '
-                             'extension.')
+    parser.add_argument('--groups_file_name', default='grouped_faces.json',
+                        help='File name where to store the groups information.')
+
     args = parser.parse_args()
 
     setup_logging(config.LOGGING_CONFIG)

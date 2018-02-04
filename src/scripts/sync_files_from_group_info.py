@@ -17,7 +17,8 @@ from egosocial.utils.logging import setup_logging
 class SyncFilesFromGroupInfoHelper:
     """ Helper class to synchronize face groups in social segments.
     """
-    def __init__(self, input_dir=None, output_dir=None, groups_dir=None):
+    def __init__(self, input_dir=None, output_dir=None, groups_dir=None,
+                 groups_file_name=None):
         """
 
         Args:
@@ -27,10 +28,10 @@ class SyncFilesFromGroupInfoHelper:
         self._input_dir = input_dir
         self._output_dir = output_dir
         self._groups_dir = groups_dir
+        self._groups_file_name = groups_file_name
 
         # set up logging
         self._log = logging.getLogger(os.path.basename(__file__))
-
 
     def process_segment(self, segment_id):
         # TODO: add docstring
@@ -70,10 +71,9 @@ class SyncFilesFromGroupInfoHelper:
         return list_files_in_segment(self._input_dir, segment_id,
                                      file_pattern='*.jpg')
 
-    def _load_groups_inverse_map(self, segm_groups_dir,
-                                 file_name='grouped_faces.json'):
+    def _load_groups_inverse_map(self, segm_groups_dir):
         # TODO: add docstring
-        groups_path = os.path.join(segm_groups_dir, file_name)
+        groups_path = os.path.join(segm_groups_dir, self._groups_file_name)
 
         clusters = self._load_face_clustering(groups_path)
 
@@ -138,14 +138,17 @@ def main():
                         help='Directory where to store the files using a folder'
                              'for each identified group. Unidentified files '
                              'are stored in a folder called unknownGroup.')
+    parser.add_argument('--groups_file_name', default='grouped_faces.json',
+                        help='File name containing the groups information.')
 
     args = parser.parse_args()
 
     setup_logging(config.LOGGING_CONFIG)
 
     helper = SyncFilesFromGroupInfoHelper(args.input_dir, args.output_dir,
-                                          args.groups_dir)
+                                          args.groups_dir, args.groups_file_name)
     helper.process_all()
+
 
 if __name__ == '__main__':
     main()
