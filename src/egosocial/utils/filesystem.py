@@ -5,6 +5,9 @@ import glob
 import logging
 import os
 
+def list_segments(directory):
+    for root, segments, files in os.walk(directory):
+        return segments
 
 def list_files_grouped_by_segment(directory, file_pattern='*.txt',
                                   output_segment_id=False):
@@ -16,15 +19,10 @@ def list_files_grouped_by_segment(directory, file_pattern='*.txt',
     :return: for each segment, yield ([files in segment], segment_id) if
              output_segment_id=True. Otherwise, yield [files in segment].
     '''
-    for root, segments, files in os.walk(directory):
-        for segm in segments:
-            segm_path = os.path.join(root, segm)
-            files = glob.glob(os.path.join(segm_path, file_pattern))
-            yield (files, segm) if output_segment_id else files
-
-        # leave the loop
-        break
-
+    for segm in list_segments(directory):
+        segm_path = os.path.join(directory, segm)
+        files = glob.glob(os.path.join(segm_path, file_pattern))
+        yield (files, segm) if output_segment_id else files
 
 def list_files(directory, file_pattern='*.txt', output_segment_id=False):
     '''
@@ -40,6 +38,12 @@ def list_files(directory, file_pattern='*.txt', output_segment_id=False):
         for file in files:
             yield (file, segm) if output_segment_id else file
 
+def list_files_in_segment(directory, segment_id, file_pattern='*.txt'):
+    segment_dir = os.path.join(directory, segment_id)
+    check_directory(segment_dir, 'Segment')
+    files = glob.glob(os.path.join(segment_dir, file_pattern))
+
+    return files
 
 def check_directory(directory, description=''):
     log = logging.getLogger(os.path.basename(__name__))

@@ -151,12 +151,10 @@ def main():
                              'segments.')
     parser.add_argument('--output_dir', required=True,
                         help='Directory where to store body and face images.')
-
     parser.add_argument('--detection_fmt',
                         choices=FACE_DETECTION.get_valid_formats(),
                         default=FACE_DETECTION.DOCKER_FACE,
                         help="""Face detection method. Default: dockerface.""")
-
     parser.add_argument('--input_dir_extra', default='',
                         help="""Extra folders inside input segment directories.
                                 Example: given a heirarchy 10/bar/foo/, 
