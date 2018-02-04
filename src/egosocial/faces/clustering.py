@@ -7,6 +7,7 @@ import os
 import cognitive_face as cf
 
 from ..utils.concurrency import RatedSemaphore
+from ..core.types import IdentifiedFace, FaceClustering
 
 # MCS API groups up to 1000 faces per request.
 N_FACES_API_LIMIT = 1000
@@ -84,7 +85,7 @@ class MCSFaceClustering:
         self._log.debug('{} faces in messy group'.format(len(messy_group)))
         self._log.debug('{} faces without id'.format(len(unknown_group)))
 
-        return groups, messy_group, unknown_group
+        return FaceClustering(groups, messy_group, unknown_group)
 
     def _group_ids(self, face_id_list):
         """ Group list of face ids using Microsoft Cognitive Service API.
@@ -127,11 +128,19 @@ class MCSFaceClustering:
         """
         # map internal face_id to face
         face_map = {iface.face_id: iface for iface in face_list
-                    if iface.face_id is not None}
-        # detected groups
-        groups = [
-            [face_map[face_id] for face_id in group] for group in grouped_ids
-        ]
+                                             if iface.face_id is not None}
+
+        # FIXME: workaround, IdentifiedFace is inmutable
+        def update_iface(iface, group_id):
+            return IdentifiedFace(image_name=iface.image_name,
+                                  face_id=iface.face_id,
+                                  group_id=group_id)
+
+        # detected groups, set group id (follows results order)
+        groups = [[update_iface(face_map[face_id], group_id)
+                  for face_id in group]
+                  for group_id, group in enumerate(grouped_ids)]
+
         # faces that couldn't be grouped
         messy_group = [face_map[face_id] for face_id in messy_ids]
         # faces without id
@@ -139,7 +148,7 @@ class MCSFaceClustering:
             unknown_group = []
         else:
             # TODO: define clearly what is valid id
-            unknown_group = [iface for iface in face_list if
-                             iface.face_id is None]
+            unknown_group = [iface for iface in face_list
+                                       if iface.face_id is None]
 
         return groups, messy_group, unknown_group

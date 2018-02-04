@@ -93,7 +93,7 @@ IdentifiedFace.create = create_identified_face
 IdentifiedFace.from_json = identified_face_from_json
 IdentifiedFace.to_json = identified_face_to_json
 
-
+# FIXME: change attribute's name to underscores for consistency
 FaceClustering = collections.namedtuple('FaceClustering', ('groups',
                                                            'messyGroup',
                                                            'unknownGroup'))

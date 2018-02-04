@@ -13,15 +13,14 @@ FACIAL_ATTRIBUTES = ['age', 'gender', 'headPose', 'smile', 'facialHair',
 
 
 class MCSFaceDetector:
-    '''
+    """
     Interface to Microsoft Cognitive Services for face detection.
-    '''
-
+    """
     def __init__(self, free_tier=True):
-        '''
+        """
 
         :param free_tier:
-        '''
+        """
         self._free_tier = free_tier
         self._landmarks = True
         self._extra_attrs = ','.join(FACIAL_ATTRIBUTES)
@@ -39,22 +38,22 @@ class MCSFaceDetector:
             self._rate_limit = RatedSemaphore(value=10, period=1)
 
     def _detect(self, image_path):
-        '''
+        """
         :param image:
         :return:
-        '''
-        response = CF.face.detect(image_path, landmarks=self._landmarks,
-                                  attributes=self._extra_attrs)
-        faces = []
+        """
+        detection = CF.face.detect(image_path, landmarks=self._landmarks,
+                                   attributes=self._extra_attrs)
 
-        for face_dict in response:
-            bbox_dict = face_dict['faceRectangle']
-            bbox = BBox(**bbox_dict)
-            face = Face(bbox=bbox, image_name=os.path.basename(image_path),
-                        face_id=face_dict['faceId'], params=face_dict)
-            faces.append(face)
+        faces = [Face(bbox=BBox.from_json(face_dict['faceRectangle']),
+                      image_name=os.path.basename(image_path),
+                      face_id=face_dict['faceId'], params=face_dict)
+                 for face_dict in detection]
 
         return faces
+
+    def __call__(self, image):
+        return self.detect(image)
 
     def detect(self, image):
         # API limits
@@ -62,10 +61,10 @@ class MCSFaceDetector:
             return self._detect(image)
 
     def detect_all(self, image_list):
-        '''
+        """
 
         :param image_list:
         :return:
-        '''
+        """
         # API limits
         return [self.detect(image) for image in image_list]

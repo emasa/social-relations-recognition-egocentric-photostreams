@@ -55,7 +55,7 @@ class SyncFilesFromGroupInfoHelper:
             # directory the first time)
             cluster_output_dir = os.path.join(self._output_dir, segment_id,
                                               group_id)
-            create_directory(cluster_output_dir, 'Cluster', warn_if_exists=True)
+            create_directory(cluster_output_dir, 'Cluster')
             # copy frame from original directory to cluster directory
             output_path = self._get_output_path(output_dir=cluster_output_dir,
                                                 image_name=image_name)
@@ -77,9 +77,8 @@ class SyncFilesFromGroupInfoHelper:
 
         clusters = self._load_face_clustering(groups_path)
 
-        # TODO: workaround, use iface.group_id (currently it's set to None)
-        groups_inverse_map = {self._get_key(iface.image_name) : str(group_id)
-                                  for group_id, group in enumerate(clusters.groups)
+        groups_inverse_map = {self._get_key(iface.image_name): str(iface.group_id)
+                                  for group in clusters.groups
                                       for iface in group}
 
         return groups_inverse_map

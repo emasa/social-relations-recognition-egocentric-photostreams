@@ -11,52 +11,57 @@ import cognitive_face as CF
 from egosocial import config
 from egosocial.faces.detection import MCSFaceDetector
 from egosocial.utils.filesystem import check_directory, create_directory
-from egosocial.utils.filesystem import list_files
+from egosocial.utils.filesystem import list_files_in_segment, list_segments
 from egosocial.utils.logging import setup_logging
 
 
 class FaceDetectorHelper:
 
-    def __init__(self, detector=None):
-        self._detector = MCSFaceDetector() if detector is None else detector
+    def __init__(self, input_dir=None, output_dir=None, detector=None):
+        # TODO: fix docstring
+        self._input_dir = input_dir
+        self._output_dir = output_dir
+        # use Microsoft Cognitive Services by default.
+        self._face_detection = MCSFaceDetector() if not detector else detector
+
         self._log = logging.getLogger(os.path.basename(__file__))
 
-    def _get_files_from_directory(self, directory):
-        self._log.debug('Listing files')
-        return list_files(directory, file_pattern='*.jpg',
-                          output_segment_id=True)
-
-    def process_directory(self, input_dir, output_dir):
-        self._log.info('Starting face detection')
+    def process_segment(self, segment_id):
+        # TODO: add docstring
+        self._log.info('Face detection for segment {}'.format(segment_id))
         # sanity check for input_dir
-        check_directory(input_dir, 'Input')
-        # generate output directory if necessary
-        create_directory(output_dir, 'Output', warn_if_exists=True)
+        check_directory(self._input_dir, 'Input')
+        # create directory
+        segm_output_dir = os.path.join(self._output_dir, segment_id)
+        create_directory(segm_output_dir, 'Output Segment', warn_if_exists=True)
 
-        for image_path, segm_id in self._get_files_from_directory(input_dir):
-            # skip segments, TODO: just for debugging
-            # if segm_id not in ['84']:
-            #    self._log.warning('Skip segment. %s' % segm_id)
-            #    continue
-
-            # generate output directory for a given segment
-            segm_output_dir = os.path.join(output_dir, segm_id)
-            create_directory(segm_output_dir, 'Segment')
+        for image_path in self._get_images(segment_id):
             detected_faces = self.process_image(image_path)
 
             output_path = self._get_output_path(output_dir=segm_output_dir,
                                                 input_path=image_path,
-                                                prefix='', ext='.json')
+                                                ext='.json')
             # save detection
             self._store(detected_faces, output_path)
 
-    def process_image(self, image_path):
-        self._log.debug('Processing image %s' % image_path)
+    def process_all(self):
+        # TODO: add docstring
+        for segment_id in list_segments(self._input_dir):
+            self.process_segment(segment_id)
 
+    def _get_images(self, segment_id):
+        # TODO: add docstring
+        self._log.debug('Listing images in segment {}'.format(segment_id))
+        return list_files_in_segment(self._input_dir, segment_id,
+                                     file_pattern='*.jpg')
+
+    def process_image(self, image_path):
+        # TODO: add docstring
+        self._log.debug('Processing image %s' % image_path)
         detection_input = self._load_input(image_path)
         # run detection
         self._log.debug('Running face detection')
-        detection_result = self._detector.detect(detection_input)
+        detection_result = self._face_detection(detection_input)
 
         self._log.debug('Found {} faces'.format(len(detection_result)))
         return detection_result
@@ -65,10 +70,10 @@ class FaceDetectorHelper:
         # image name without extension
         image_name = os.path.splitext(os.path.basename(kwargs['input_path']))[0]
         # output path template
-        terms = ('{output_dir}', '{prefix}{image_name}{ext}')
+        terms = ('{output_dir}', '{image_name}{ext}')
         output_path_tpl = os.path.join(*terms)
         kwargs = dict(output_dir=kwargs['output_dir'], image_name=image_name,
-                      ext=kwargs['ext'], prefix=kwargs['prefix'])
+                      ext=kwargs['ext'])
 
         return output_path_tpl.format(**kwargs)
 
@@ -78,9 +83,9 @@ class FaceDetectorHelper:
 
     def _store(self, faces, output_path):
         self._log.debug('Saving face detection %s' % output_path)
-        faces_as_dict = [face._asdict() for face in faces]
+        faces_json = [face.to_json() for face in faces]
         with open(output_path, 'w') as json_file:
-            json.dump(faces_as_dict, json_file)
+            json.dump(faces_json, json_file, indent=4)
 
 
 def main():
@@ -100,8 +105,8 @@ def main():
         CF.Key.set(credentials['azure_face_api_key'])
         CF.BaseUrl.set(config.FACE_API_BASE_URL)
 
-    helper = FaceDetectorHelper()
-    helper.process_directory(args.input_dir, args.output_dir)
+    helper = FaceDetectorHelper(args.input_dir, args.output_dir)
+    helper.process_all()
 
 
 if __name__ == '__main__':
