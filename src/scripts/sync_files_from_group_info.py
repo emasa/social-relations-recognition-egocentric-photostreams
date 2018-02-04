@@ -55,7 +55,7 @@ class SyncFilesFromGroupInfoHelper:
             # directory the first time)
             cluster_output_dir = os.path.join(self._output_dir, segment_id,
                                               group_id)
-            create_directory(cluster_output_dir, 'Cluster')
+            create_directory(cluster_output_dir, 'Cluster', warn_if_exists=True)
             # copy frame from original directory to cluster directory
             output_path = self._get_output_path(output_dir=cluster_output_dir,
                                                 image_name=image_name)

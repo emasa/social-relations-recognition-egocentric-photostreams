@@ -7,6 +7,7 @@ import os
 
 
 def list_segments(directory):
+    check_directory(directory, 'Base')
     for root, segments, files in os.walk(directory):
         return segments
 

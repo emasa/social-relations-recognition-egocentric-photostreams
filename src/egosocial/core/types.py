@@ -47,7 +47,7 @@ def face_from_json(face_asjson):
     if face_dict['bbox']:
         face_dict['bbox'] = BBox.from_json(face_dict['bbox'])
 
-    return IdentifiedFace(**face_dict)
+    return Face(**face_dict)
 
 
 def face_to_json(face):
@@ -65,39 +65,28 @@ Face.to_json = face_to_json
 
 Person = collections.namedtuple('Person', ('bbox', 'face', 'params'))
 
-IdentifiedFace = collections.namedtuple('IdentifiedFace', ('bbox',
-                                                           'image_name',
-                                                           'segment_id',
+IdentifiedFace = collections.namedtuple('IdentifiedFace', ('image_name',
                                                            'face_id',
                                                            'group_id'))
 
 
-def create_identified_face(bbox=None, image_name=None, segment_id=None,
-                           face_id=None, group_id=None):
+def create_identified_face(image_name=None, face_id=None, group_id=None):
 
-    return IdentifiedFace(bbox, image_name, segment_id, face_id, group_id)
+    return IdentifiedFace(image_name, face_id, group_id)
 
 
 def identified_face_from_json(iface_asjson):
     if isinstance(iface_asjson, dict):
-        iface_dict = dict(iface_asjson)
+        iface_dict = iface_asjson
     else:
-        iface_dict = dict(zip(('bbox', 'image_name', 'face_id', 'segment_id',
-                               'group_id'), iface_asjson))
-
-    if iface_dict['bbox']:
-        iface_dict['bbox'] = BBox.from_json(iface_dict['bbox'])
+        iface_dict = dict(zip(('image_name', 'face_id', 'group_id'),
+                              iface_asjson))
 
     return IdentifiedFace(**iface_dict)
 
 
 def identified_face_to_json(iface):
-    iface_dict = iface._asdict()
-
-    if iface_dict['bbox']:
-        iface_dict['bbox'] = BBox.to_json(iface_dict['bbox'])
-
-    return iface_dict
+    return iface._asdict()
 
 
 IdentifiedFace.create = create_identified_face
