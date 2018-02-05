@@ -49,8 +49,11 @@ class SyncGroupInfoFromFilesHelper:
 
     def process_all(self):
         # TODO: add docstring
-        for segment_id in list_segments(self._input_dir):
+        segments = list_segments(self._input_dir)
+        for progress, segment_id in enumerate(segments):
             self.process_segment(segment_id)
+            self._log.info('Processed {} / {}'.format(progress+1,
+                                                      len(segments)))
 
     def _get_face_clustering(self, segm_groups_dir):
         # TODO: add docstring

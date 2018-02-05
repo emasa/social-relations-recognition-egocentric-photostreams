@@ -1,11 +1,13 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
 import os
+import logging
+import time
 
-import cognitive_face as CF
+import cognitive_face as cf
+import retry
 
 from ..core.types import BBox, Face
-from ..utils.concurrency import RatedSemaphore
 
 FACIAL_ATTRIBUTES = ['age', 'gender', 'headPose', 'smile', 'facialHair',
                      'glasses', 'emotion', 'hair', 'makeup', 'occlusion',
@@ -16,33 +18,40 @@ class MCSFaceDetector:
     """
     Interface to Microsoft Cognitive Services for face detection.
     """
-    def __init__(self, free_tier=True):
+    def __init__(self, free_tier=True, force_wait=True):
         """
-
-        :param free_tier:
+        Args:
+            :param free_tier (bool): indicates if the MCS free tier is used.
+            Free tier is restricted to 20 requests per minutes. Paid tier
+            allows up to 10 reqs per second.
         """
         self._free_tier = free_tier
+        self._force_wait = force_wait
+
         self._landmarks = True
         self._extra_attrs = ','.join(FACIAL_ATTRIBUTES)
+        self._log = logging.getLogger(os.path.basename(__file__))
 
         # API limits: max number of requests according to API level
-        # Warning: this implemention enforces limits per object instance
+        # Warning: this implementation enforces limits per object instance
         # Using multiple instances in parallel could lead to
         # quota errors (CognitiveFaceException)
+        self._log.debug('Using Microsoft Cognitive Services with {} tier'
+                        .format('free' if free_tier else 'paid'))
+
         if self._free_tier:
-            # free tier: up to 20 requests per minute
-            # let's do 18 to avoid problems
-            self._rate_limit = RatedSemaphore(value=18, period=60)
+            # wait 3 seconds
+            self._wait_sec = 3
         else:
-            # up to 10 requests per second
-            self._rate_limit = RatedSemaphore(value=10, period=1)
+            # wait 0.1 second
+            self._wait_sec = 0.1
 
     def _detect(self, image_path):
         """
         :param image:
         :return:
         """
-        detection = CF.face.detect(image_path, landmarks=self._landmarks,
+        detection = cf.face.detect(image_path, landmarks=self._landmarks,
                                    attributes=self._extra_attrs)
 
         faces = [Face(bbox=BBox.from_json(face_dict['faceRectangle']),
@@ -56,9 +65,17 @@ class MCSFaceDetector:
         return self.detect(image)
 
     def detect(self, image):
-        # API limits
-        with self._rate_limit:
-            return self._detect(image)
+        # retry on CognitiveFaceException, sleep 15, 30, 60... seconds
+        @retry.retry(cf.util.CognitiveFaceException, logger=self._log,
+                     tries=3, delay=15, backoff=2, max_delay=60)
+        def retry_detect(_self, image):
+            # wait enough time to avoid problems with MCS API limits
+            if _self._force_wait:
+                time.sleep(_self._wait_sec)
+
+            return _self._detect(image)
+
+        return retry_detect(self, image)
 
     def detect_all(self, image_list):
         """
@@ -66,5 +83,4 @@ class MCSFaceDetector:
         :param image_list:
         :return:
         """
-        # API limits
         return [self.detect(image) for image in image_list]

@@ -62,8 +62,12 @@ class SyncFilesFromGroupInfoHelper:
             self._store(frame_path, output_path)
 
     def process_all(self):
-        for segment_id in list_segments(self._input_dir):
+        # TODO: add docstring
+        segments = list_segments(self._input_dir)
+        for progress, segment_id in enumerate(segments):
             self.process_segment(segment_id)
+            self._log.info('Processed {} / {}'.format(progress+1,
+                                                      len(segments)))
 
     def _segment_sequence(self, segment_id):
         # TODO: add docstring

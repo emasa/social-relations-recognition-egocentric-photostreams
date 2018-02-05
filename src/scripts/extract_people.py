@@ -18,20 +18,22 @@ from egosocial.utils.parser import FACE_DETECTION, load_faces_from_file
 class BodyFaceExtractor:
 
     def __init__(self, input_dir=None, output_dir=None, detection_dir=None,
-                 min_confidence=None,
+                 height_mul=6.0, width_mul=3.0, min_confidence=None,
                  face_detection_method=FACE_DETECTION.DOCKER_FACE):
         # TODO: add docstring
         self._input_dir = input_dir
         self._output_dir = output_dir
         self._detection_dir = detection_dir
 
+        # TODO: improve error handling
+        assert height_mul >= 1.0 and width_mul >= 1.0
         if min_confidence is not None:
-            # TODO: improve error handling
             assert 0 < min_confidence <= 1
 
         self._min_confidence = min_confidence
 
-        self._detector = NaivePersonDetector(3, 5)
+        self._detector = NaivePersonDetector(height_multiplier=height_mul,
+                                             width_multiplier=width_mul)
         self._face_detection_method = face_detection_method
         # set up logging
         self._log = logging.getLogger(os.path.basename(__file__))
@@ -61,7 +63,7 @@ class BodyFaceExtractor:
             # generate body and face output directories for a given segment
             for im_type, images in (('body', body_list), ('face', face_list)):
                 segm_output_dir = os.path.join(self._output_dir, im_type, segment_id)
-                create_directory(segm_output_dir, 'Segment', warn_if_exists=True)
+                create_directory(segm_output_dir, 'Segment')
                 self._store(images, segm_output_dir, image_basename)
 
     def process_all(self):
@@ -158,12 +160,20 @@ class BodyFaceExtractor:
         return output_path_tpl.format(**kwargs)
 
 
-def restricted_float(x):
+def float_in_0_1(x):
     x = float(x)
     if not (0.0 < x <= 1.0):
         raise argparse.ArgumentTypeError("%r not in range (0.0, 1.0]"%(x,))
     return x
 
+def float_gte(min_val):
+    def _restricted_float(x):
+        x = float(x)
+        if not (x >= min_val):
+            raise argparse.ArgumentTypeError("{} must be >= {}"%(x, min_val))
+        return x
+
+    return _restricted_float
 
 def main():
     entry_msg = 'Extract body and face imaging from people in an image.'
@@ -180,22 +190,32 @@ def main():
                         choices=FACE_DETECTION.get_valid_formats(),
                         default=FACE_DETECTION.DOCKER_FACE,
                         help="""Face detection method. Default: dockerface.""")
-    parser.add_argument('--min_confidence', type=restricted_float, default=0.99,
+    parser.add_argument('--min_confidence', type=float_in_0_1, default=0.99,
                         help="""Dockerface confidence detection threshold.
                                 Default: 0.99.""")
+    parser.add_argument('--height_mul', type=float_gte(1.0), default=6.0,
+                        help="""Height multiplier height_mul: used for body 
+                                extraction. Must be >= 1.0.
+                                body_height = face_height * height_mult
+                                Default: 6.0""")
+    parser.add_argument('--width_mul', type=float_gte(1.0), default=3.0,
+                        help="""Width multiplier width_mul: used for body 
+                                extraction. Must be >= 1.0.
+                                body_width = face_width * width_mult
+                                Default: 3.0""")
     parser.add_argument('--input_dir_extra', default='',
                         help="""Extra folders inside input segment directories.
                                 Example: given a heirarchy 10/bar/foo/, 
-                                call with --input_dir_extra bar,foo
-                            """)
+                                call with --input_dir_extra bar,foo""")
 
     args = parser.parse_args()
 
     setup_logging(config.LOGGING_CONFIG)
 
     generator = BodyFaceExtractor(args.input_dir, args.output_dir,
-                                  args.detection_dir, args.min_confidence,
-                                  args.detection_fmt)
+                                  args.detection_dir,
+                                  args.height_mul, args.width_mul,
+                                  args.min_confidence, args.detection_fmt)
 
     extra = args.input_dir_extra
     # work around for test folders, run with '--input_dir_extra data

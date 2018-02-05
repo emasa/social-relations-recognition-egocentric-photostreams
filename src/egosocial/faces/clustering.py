@@ -3,10 +3,11 @@
 
 import logging
 import os
+import time
 
 import cognitive_face as cf
+import retry
 
-from ..utils.concurrency import RatedSemaphore
 from ..core.types import IdentifiedFace, FaceClustering
 
 # MCS API groups up to 1000 faces per request.
@@ -17,14 +18,15 @@ class MCSFaceClustering:
     """ Create group of faces by similarity using Microsoft Cognitive Services.
     """
 
-    def __init__(self, free_tier=True):
+    def __init__(self, free_tier=True, force_wait=True):
         """
         Args:
             :param free_tier (bool): indicates if the MCS free tier is used.
-            Free tiers is restricted to up 18 requests per minute (hard limit
-            is 20 reqs per min). Paid tier allows up to 10 reqs per second.
+            Free tier is restricted to 20 requests per minutes. Paid tier
+            allows up to 10 reqs per second.
         """
         self._free_tier = free_tier
+        self._force_wait = force_wait
         # set up logging
         self._log = logging.getLogger(os.path.basename(__file__))
 
@@ -35,12 +37,11 @@ class MCSFaceClustering:
         self._log.debug('Using Microsoft Cognitive Services with {} tier'
                         .format('free' if free_tier else 'paid'))
         if self._free_tier:
-            # free tier: up to 20 requests per minute
-            # let's do 18 to avoid problems
-            self._rate_limit = RatedSemaphore(value=18, period=60)
+            # wait 3 seconds
+            self._wait_sec = 3
         else:
-            # paid access allows up to 10 requests per second
-            self._rate_limit = RatedSemaphore(value=10, period=1)
+            # wait 0.1 second
+            self._wait_sec = 0.1
 
     def __call__(self, face_list):
         """ Group list of faces. Uses callable notation.
@@ -96,23 +97,36 @@ class MCSFaceClustering:
             :return: List containing groups of face ids from similar faces.
             :return: List of face ids without a well-defined group.
         """
-        # TODO: implement multiple calls to groups
         # FIXME: remove max limit
         assert len(face_id_list) <= N_FACES_API_LIMIT
-        # remove empty groups if there aren't faces
-        if not face_id_list:
-            return [], []
-        # process batch of faces, respecting API limits
-        batch = face_id_list
-        # API limits
-        with self._rate_limit:
-            self._log.debug('Grouping batch of {} faces'.format(len(batch)))
-            # TODO: improve error handling
-            result = cf.face.group(batch)
 
-        grouped_ids, messy_ids = result['groups'], result['messyGroup']
+        # TODO: implement multiple calls to groups
+        # process batch of faces, respecting API limits
+        face_id_batch = face_id_list
+        grouped_ids, messy_ids = self._group_face_id_batch(face_id_batch)
 
         return grouped_ids, messy_ids
+
+    def _group_face_id_batch(self, face_id_batch):
+        # remove batches with less than two faces
+        if len(face_id_batch) < 2:
+            self._log.warning('Minimum of two faces per batch. Got {}.'
+                              .format(len(face_id_batch)))
+            return [], face_id_batch
+
+        self._log.debug('Grouping batch of {} faces'.format(len(face_id_batch)))
+        # retry on CognitiveFaceException, sleep 15, 30, 60... seconds
+        @retry.retry(cf.util.CognitiveFaceException, logger=self._log,
+                     tries=3, delay=15, backoff=2, max_delay=60)
+        def retry_group_face_id_batch(_self, face_id_batch):
+            # wait enough time to avoid problems with MCS API limits
+            if _self._force_wait:
+                time.sleep(_self._wait_sec)
+
+            result = cf.face.group(face_id_batch)
+            return result['groups'], result['messyGroup']
+
+        return retry_group_face_id_batch(self, face_id_batch)
 
     def _create_face_groups(self, face_list, grouped_ids, messy_ids):
         """ Get identified faces from ids.
