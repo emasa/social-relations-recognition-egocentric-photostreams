@@ -132,3 +132,6 @@ venv*.bak/
 # .idea/sqlDataSources.xml
 # .idea/dynamic.xml
 # .idea/uiDesigner.xml
+
+# Keras binary models / weights
+*.h5
