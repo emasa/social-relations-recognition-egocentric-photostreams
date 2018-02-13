@@ -1,6 +1,6 @@
 import os
 
-# absolute path to project directory (i.e. src dir)
+# absolute path to project directory (i.e. src directory)
 PROJECT_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 # absolute path to assets directory (examples of imaging, face detection, etc.)
@@ -17,12 +17,14 @@ CREDENTIALS_FILE = os.path.join(PROJECT_DIR, 'credentials.json.nogit')
 FACE_API_BASE_URL = 'https://westcentralus.api.cognitive.microsoft.com/face' \
                     '/v1.0/'
 
+# attribute models list
 MODEL_KEYS = """
 BODY_AGE,BODY_GENDER,BODY_CLOTHING,
 HEAD_AGE,HEAD_GENDER,HEAD_POSE,FACE_APPEARANCE,FACE_EMOTION
 """
 MODEL_KEYS = [name.strip() for name in MODEL_KEYS.split(',')]
-
+# list of model's url
+# TODO: upload final models to GDrive
 MODEL_FILE_URLS = [
     ('body_age_trained_on_pipa.h5', None),
     ('body_gender_trained_on_pipa.h5', None),
@@ -36,4 +38,5 @@ MODEL_FILE_URLS = [
 
 MODELS = {name: MODEL_FILE_URLS[idx] for idx, name in enumerate(MODEL_KEYS)}
 
+# directory where the models are downloaded if there aren't already there.
 MODELS_CACHE_DIR = os.path.join(PROJECT_DIR, 'model_snapshots', 'bins')
