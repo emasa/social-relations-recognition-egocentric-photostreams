@@ -117,7 +117,7 @@ def get_model(input_shape):
         input_features)
     domain = Dense(N_CLS_DOMAIN, activation='softmax', name='domain')(relation)
 
-    clf = Model(input=input_features, outputs=[domain, relation])
+    clf = Model(inputs=[input_features], outputs=[domain, relation])
 
     return clf
 
