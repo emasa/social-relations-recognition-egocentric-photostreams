@@ -2,6 +2,7 @@
 # -*- coding: utf-8 -*-
 
 import collections
+import numpy as np
 
 BBox = collections.namedtuple('BBox', ('top', 'left', 'height', 'width'))
 
@@ -136,3 +137,24 @@ def face_clustering_to_json(face_clustering):
 FaceClustering.create = create_face_clustering
 FaceClustering.from_json = face_clustering_from_json
 FaceClustering.to_json = face_clustering_to_json
+
+
+def relation_to_domain(rel_label):
+    rel_label = int(rel_label)
+
+    if rel_label in range(0, 4):
+        return 0
+    elif rel_label in range(4, 7):
+        return 1
+    elif rel_label in range(7, 8):
+        return 2
+    elif rel_label in range(8, 12):
+        return 3
+    elif rel_label in range(12, 16):
+        return 4
+
+    raise LookupError(
+        'Label out of range: {}. Valid range: [0,16).'.format(rel_label))
+
+
+relation_to_domain_vec = np.vectorize(relation_to_domain)

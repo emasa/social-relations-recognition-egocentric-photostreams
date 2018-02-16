@@ -7,27 +7,30 @@ import os
 import sys
 
 import numpy as np
-import sklearn
-from sklearn.preprocessing import StandardScaler
 import scipy
-
-from keras.models import Model
-from keras.layers import Input, Dense
-from keras.losses import categorical_crossentropy
-from keras.utils import to_categorical
+import sklearn
 from keras import backend as K
 from keras.callbacks import ModelCheckpoint, TensorBoard
+from keras.layers import Input, Dense
+from keras.losses import categorical_crossentropy
+from keras.models import Model
+from keras.utils import to_categorical
+from sklearn.preprocessing import StandardScaler
 
 import egosocial.config
+from egosocial.core.types import relation_to_domain_vec
 from egosocial.utils.caffe.misc import load_levelDB_as_array
-from egosocial.utils.logging import setup_logging
 from egosocial.utils.keras.autolosses import AutoMultiLossWrapper
+from egosocial.utils.logging import setup_logging
+
+# sys.path.extend([os.path.dirname(os.path.dirname(__file__))])
 
 # constants
 DOMAIN, RELATION = 'domain', 'relation'
 END_TO_END, ATTRIBUTES = 'end_to_end', 'attributes'
 
 N_CLS_RELATION, N_CLS_DOMAIN = 16, 5
+
 
 def train_model(conf):
     log = logging.getLogger(os.path.basename(__file__))
@@ -43,34 +46,33 @@ def train_model(conf):
 
     attribute_selector = AttributeSelector(all_attributes)
     attributes_query = 'all'
-    # all / face / body / or single attributes
-    log.info('Selected attribute(s): {}'.format(attributes_query))
     # expand all / face / body / single attribute
     selected_attributes = attribute_selector.filter(attributes_query)
+    # all / face / body / or single attributes
+    log.info('Selected attribute(s): {}'.format(attributes_query))
 
     # get data splits composed by selected attributes only
     data_split = get_data_split(features, selected_attributes,
                                 conf.LABEL_FILES)
-    x_train, x_val, x_test, *y_data = data_split
+    x_train, x_val, x_test, *labels = data_split
     # preprocess the data
     x_train, x_val, x_test = preprocess_data(x_train, x_val, x_test)
     # one-hot encoding for relation
     y_train_rel, y_val_rel, y_test_rel = [
-        to_categorical(y, N_CLS_RELATION) for y in y_data
+        to_categorical(y, N_CLS_RELATION) for y in labels
     ]
     # one-hot encoding for domain
     y_train_dom, y_val_dom, y_test_dom = [
-        to_categorical(relation_to_domain_vec(y), N_CLS_DOMAIN) for y in y_data
+        to_categorical(relation_to_domain_vec(y), N_CLS_DOMAIN) for y in labels
     ]
-
-    clf_wrapper = AutoMultiLossWrapper(get_model(conf))
-
+    # discard number of samples
+    input_shape = x_train.shape[1:]
+    clf_wrapper = AutoMultiLossWrapper(get_model(input_shape))
+    # TODO: move away
     auto_loss = lambda y_true, y_pred: -K.log(categorical_crossentropy(y_true,
                                                                        y_pred))
 
-    clf_wrapper.model.compile(optimizer='adam', loss=auto_loss,
-                              loss_weights='auto')
-
+    clf_wrapper.compile(optimizer='adam', loss=auto_loss, loss_weights='auto')
     log.info(clf_wrapper.model.summary())
 
     x_train_inputs = {'attribute_features': x_train}
@@ -80,12 +82,12 @@ def train_model(conf):
     x_test_inputs = {'attribute_features': x_train}
     y_test_outputs = {'relation': y_test_rel, 'domain': y_test_dom}
 
-    batch_size=32
-    epochs=conf.EPOCHS
+    batch_size = conf.BATCH_SIZE
+    epochs = conf.EPOCHS
 
     checkpoint_path = os.path.join(egosocial.config.MODELS_CACHE_DIR,
                                    'multi_attribute',
-                                   'weights.{epoch:02d}-{val_loss:.2f}.hdf5')
+                                   'weights.{epoch:02d}-{val_loss:.2f}.h5')
 
     callbacks = [
         ModelCheckpoint(checkpoint_path, monitor='val_loss',
@@ -106,11 +108,13 @@ def train_model(conf):
 
     log.info(scores)
 
-def get_model(input_shape, conf):
+
+def get_model(input_shape):
     input_features = Input(shape=input_shape, dtype='float',
                            name='attribute_features')
 
-    relation = Dense(N_CLS_RELATION, activation='linear', name='relation')(input_features)
+    relation = Dense(N_CLS_RELATION, activation='linear', name='relation')(
+        input_features)
     domain = Dense(N_CLS_DOMAIN, activation='softmax', name='domain')(relation)
 
     clf = Model(input=input_features, outputs=[domain, relation])
@@ -127,7 +131,8 @@ def preprocess_data(x_train, x_val, x_test):
         x_test = scaler.transform(x_test)
         x_val = scaler.transform(x_val)
 
-    return x_test, x_train, x_val
+    return x_train, x_val, x_test
+
 
 class AttributeSelector:
 
@@ -154,12 +159,9 @@ class AttributeSelector:
         return [attr_name for attr_name in attribute_list if key in attr_name]
 
 
-def get_model_configurations(all_attributes, conf):
+def get_model_configurations(all_attributes):
     # extend list of attributes
-    if conf.IS_END2END:
-        extended_attrs = all_attributes
-    else:
-        extended_attrs = ['all', 'body', 'face'] + all_attributes
+    extended_attrs = ['all', 'body', 'face'] + all_attributes
 
     # some attributes are splitted in two files (one for each person)
     # create a list unique attributes name
@@ -172,7 +174,6 @@ def get_model_configurations(all_attributes, conf):
 
 class Configuration:
     def __init__(self, args):
-
         self.DATA_TYPE = RELATION
         self.ARCH = 'caffeNet'
         self.LAYER = 'fc7'
@@ -198,25 +199,21 @@ class Configuration:
                                                 LABEL_FILE_FMT.format(split))
                             for split in ('train', 'test', 'eval')}
 
-        self.IS_END2END = (args.model_type == END_TO_END)
+        self.IS_END2END = False
 
         self.BASE_FEATURES_DIR = os.path.join(self.PROJECT_DIR,
                                               'extracted_features')
-        if self.IS_END2END:
-            self.FEATURES_DIR = os.path.join(self.BASE_FEATURES_DIR,
-                                             'end_to_end_features',
-                                             self.CONFIG)
-        else:
-            self.FEATURES_DIR = os.path.join(self.BASE_FEATURES_DIR,
-                                             'attribute_features',
-                                             self.CONFIG)
+        self.FEATURES_DIR = os.path.join(self.BASE_FEATURES_DIR,
+                                         'attribute_features',
+                                         self.CONFIG)
+
         self.STORED_FEATURES_DIR = os.path.join(self.FEATURES_DIR,
                                                 'all_splits_numpy_format')
 
         self.PROCESS_FEATURES = args.port_features
 
-        # max number of iterations
         self.EPOCHS = args.epochs
+        self.BATCH_SIZE = args.batch_size
 
         # reuse precomputed model?
         self.REUSE_MODEL = args.reuse_model
@@ -239,7 +236,7 @@ def get_data_split(attribute_features, selected_attributes, label_files):
             labels[split] = np.array([file_label.split()[1]
                                       for file_label in file_label_list],
                                      dtype=np.int)
-    # define splits
+    # splits (switch from caffe's split name convention to keras's convention)
     X_train = fused_features['train']
     y_train = labels['train']
     X_test = fused_features['eval']
@@ -426,31 +423,12 @@ def load_features(features_dir):
 
     return attribute_features
 
-def relation_to_domain(rel_label):
-    rel_label = int(rel_label)
-
-    if rel_label in range(0, 4):
-        return 0
-    elif rel_label in range(4, 7):
-        return 1
-    elif rel_label in range(7, 8):
-        return 2
-    elif rel_label in range(8, 12):
-        return 3
-    elif rel_label in range(12, 16):
-        return 4
-
-    raise LookupError(
-        'Label out of range: {}. Valid range: [0,16).'.format(rel_label))
-
-
-relation_to_domain_vec = np.vectorize(relation_to_domain)
-
 
 def positive_int(value):
     ivalue = int(value)
     if ivalue <= 0:
-         raise argparse.ArgumentTypeError("%s is an invalid positive int value" % value)
+        raise argparse.ArgumentTypeError(
+            "%s is an invalid positive int value" % value)
     return ivalue
 
 
@@ -462,14 +440,6 @@ def main():
 
     parser.add_argument('--project_dir', required=True,
                         help='Base directory.')
-
-    parser.add_argument('--data_type', required=True,
-                        choices=[RELATION, DOMAIN],
-                        help='Data type.')
-
-    parser.add_argument('--model_type', required=True,
-                        choices=[END_TO_END, ATTRIBUTES],
-                        help='Model type.')
 
     parser.add_argument('--port_features', required=False,
                         action='store_true',
@@ -492,8 +462,16 @@ def main():
                         default=100,
                         help='Max number of epochs.')
 
+    parser.add_argument('--batch_size', required=False, type=positive_int,
+                        default=32,
+                        help='Batch size.')
+
     args = parser.parse_args()
     # keep configuration
     conf = Configuration(args)
 
     train_model(conf)
+
+
+if __name__ == '__main__':
+    main()
