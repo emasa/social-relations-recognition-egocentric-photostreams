@@ -77,9 +77,9 @@ def train_model(conf):
 
     x_train_inputs = {'attribute_features': x_train}
     y_train_outputs = {'relation': y_train_rel, 'domain': y_train_dom}
-    x_val_inputs = {'attribute_features': x_train}
+    x_val_inputs = {'attribute_features': x_val}
     y_val_outputs = {'relation': y_val_rel, 'domain': y_val_dom}
-    x_test_inputs = {'attribute_features': x_train}
+    x_test_inputs = {'attribute_features': x_test}
     y_test_outputs = {'relation': y_test_rel, 'domain': y_test_dom}
 
     batch_size = conf.BATCH_SIZE
