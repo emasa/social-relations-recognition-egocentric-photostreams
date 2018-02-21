@@ -1,3 +1,6 @@
+# !/usr/bin/env python
+# -*- coding: utf-8 -*-
+
 import keras
 from keras.initializers import Constant
 from keras.layers import Layer
