@@ -22,7 +22,7 @@ MODEL_KEYS = """
 BODY_AGE,BODY_GENDER,BODY_CLOTHING,
 HEAD_AGE,HEAD_GENDER,HEAD_POSE,FACE_APPEARANCE,FACE_EMOTION
 """
-MODEL_KEYS = [name.strip() for name in MODEL_KEYS.split(',')]
+MODEL_KEYS = [name.strip().lower() for name in MODEL_KEYS.split(',')]
 # list of model's url
 # TODO: upload final models to GDrive
 MODEL_FILE_URLS = [
