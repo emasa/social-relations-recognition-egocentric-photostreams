@@ -3,6 +3,7 @@
 
 # Logs
 *.log*
+logs/
 
 # Python related
 # Byte-compiled / optimized / DLL files
@@ -134,4 +135,8 @@ venv*.bak/
 # .idea/uiDesigner.xml
 
 # Keras binary models / weights
+model_snapshots/
 *.h5
+
+# Temporary git clone folders
+mmdnn/
