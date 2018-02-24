@@ -48,7 +48,7 @@ class PlotLearning(Callback):
 
     def on_epoch_end(self, epoch, logs={}):
         # update internal state
-        self.x.append(self.i)
+        self.x.append(self.i+1) # epochs starting in one
         n_plots = 0  # number of unique subplots
         for metric_name in logs.keys():
             # split logs in different lists
