@@ -4,6 +4,8 @@
 import keras.backend as K
 from keras.layers.core import Layer
 
+if K.backend() == 'tensorflow':
+    import tensorflow as tf
 
 class LRN(Layer):
 
@@ -19,6 +21,9 @@ class LRN(Layer):
         super(LRN, self).build(input_shape)
 
     def call(self, x, mask=None):
+        if K.backend() == 'tensorflow':
+            return self._call_tf(x, mask)
+
         half_n = self.n - 1
         squared = K.square(x)
         scale = self.k
@@ -41,6 +46,8 @@ class LRN(Layer):
         scale = K.pow(scale, self.beta)
         return x / scale
 
+    def _call_tf(self, x, mask=None):
+        return tf.nn.lrn(x, depth_radius=self.n, alpha=self.alpha, beta=self.beta, bias=self.k)
+
     def compute_output_shape(self, input_shape):
         return input_shape
-
