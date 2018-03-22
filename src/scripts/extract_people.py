@@ -184,7 +184,7 @@ def main():
     parser.add_argument('--detection_dir', required=True,
                         help='Directory containing face detection for social '
                              'segments.')
-    parser.add_argument('--output_dir', required=False,
+    parser.add_argument('--output_dir', required=True,
                         help='Directory where to store body and face images.')
     parser.add_argument('--detection_fmt',
                         choices=FACE_DETECTION.get_valid_formats(),
