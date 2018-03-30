@@ -4,6 +4,7 @@
 import itertools
 
 import numpy as np
+import sklearn
 from sklearn.decomposition import PCA
 
 import keras
@@ -19,12 +20,16 @@ class TimeSeriesArrayIterator(Iterator):
         y: Numpy array of targets data.
         data_generator: Instance of `TimeSeriesDataGenerator`.
         batch_size: Integer, size of a batch.
+        maxlen: Length of longest sequence.
+        output_cbk: Function called on batch of ys to produce desired output.
         shuffle: Boolean, whether to shuffle the data between epochs.
         seed: Random seed for data shuffling.
+        balanced: boolean. Draw samples (with replacement) assuming uniform distribution 
+        between classes. Default: false (keras implementation).
     """
 
-    def __init__(self, x, y, data_generator, maxlen=None,
-                 batch_size=32, shuffle=False, seed=None):
+    def __init__(self, x, y, data_generator, maxlen=None, output_cbk=None,
+                 batch_size=32, shuffle=False, seed=None, balanced=False):
         if y is not None and len(x) != len(y):
             raise ValueError('`x` (images tensor) and `y` (labels) '
                              'should have the same length. '
@@ -32,10 +37,13 @@ class TimeSeriesArrayIterator(Iterator):
                              (np.asarray(x).shape, np.asarray(y).shape))
         if maxlen is None:
             maxlen = max(len(seq) for seq in x)
-            
-        self.maxlen = maxlen        
-        self.n_features = None
-        
+
+        self.data_generator = data_generator            
+        self.maxlen = maxlen
+        self.output_cbk = output_cbk
+        self.balanced = balanced
+        self.n_features = None        
+
         self.x = []
         for seq in x:
             seq_array = np.asarray(seq, dtype=K.floatx())
@@ -66,12 +74,34 @@ class TimeSeriesArrayIterator(Iterator):
             self.y = np.asarray(y)
         else:
             self.y = None
+            
+        if y is not None and balanced:
+            classes = np.unique(self.y)
+            classes_map = {cls : cls_idx for cls_idx, cls in enumerate(classes)}
 
-        self.data_generator = data_generator
+            self._y_groupby_cls = [ [] for _ in classes ]                
+            for y_idx, cls in enumerate(self.y):
+                cls_idx = classes_map[cls]
+                self._y_groupby_cls[cls_idx].append(y_idx)
+        else:
+            self._y_groupby_cls = None
+
+        super(TimeSeriesArrayIterator, self).__init__(len(x), batch_size, shuffle, seed)
+
+    def _set_index_array(self):
+        if self.balanced and self.y is not None:
+            classes_idx = np.random.randint(0, len(self._y_groupby_cls), size=self.n)
+            
+            index_array = []
+            for cls_idx in classes_idx:
+                group = self._y_groupby_cls[cls_idx]
+                sample_idx = np.random.randint(0, len(group))
+                index_array.append(group[sample_idx])
+                
+            self.index_array = np.asarray(index_array)
+        else:
+            super(TimeSeriesArrayIterator, self)._set_index_array()
         
-        n_samples = len(x)
-        super(TimeSeriesArrayIterator, self).__init__(n_samples, batch_size, shuffle, seed)
-
     def _get_batches_of_transformed_samples(self, index_array):
         batch_x = []
         for i, j in enumerate(index_array):
@@ -83,7 +113,11 @@ class TimeSeriesArrayIterator(Iterator):
 
         if self.y is None:
             return batch_x
+        
         batch_y = self.y[index_array]
+        if self.output_cbk:
+            batch_y = self.output_cbk(batch_y)
+        
         return batch_x, batch_y
 
     def next(self):
@@ -101,10 +135,11 @@ class TimeSeriesArrayIterator(Iterator):
 
 class TimeSeriesDataGenerator(object):
     
-    def __init__(self, fancy_pca=False, noise_stddev=0.01):
+    def __init__(self, fancy_pca=False, noise_stddev=0.01, random_state=None):
         self.fancy_pca = fancy_pca
         
         self.noise_stddev = noise_stddev
+        self.random_state = sklearn.utils.check_random_state(random_state)
         self.eigen_vecs = None
         self.eigen_vals = None
     
@@ -113,20 +148,17 @@ class TimeSeriesDataGenerator(object):
             flat_x = np.array(list(itertools.chain(*x_sequences)))
 
             # compute eigen vectors and eigen values
-            pca = PCA()
+            pca = PCA(random_state=self.random_state)
             pca.fit(flat_x)
 
             self.eigen_vecs = pca.components_.T
             self.eigen_vals = pca.explained_variance_
     
-    def transform(self, x_seq, seed=None):        
-        if seed is not None:
-            np.random.seed(seed)
-        
-        if self.fancy_pca:            
+    def transform(self, x_seq):        
+        if self.fancy_pca:
             if self.eigen_vecs is not None and self.eigen_vals is not None:            
                 # for each frame and feature draw gaussian r.v. independently
-                alpha = np.random.normal(loc=0.0, scale=self.noise_stddev, size=x_seq.shape)
+                alpha = self.random_state.normal(loc=0.0, scale=self.noise_stddev, size=x_seq.shape)
                 pca_noise = np.dot(self.eigen_vecs, (alpha * self.eigen_vals).T).T
                 # augment data sample
                 x_seq = x_seq + pca_noise
@@ -136,12 +168,17 @@ class TimeSeriesDataGenerator(object):
 
         return x_seq
     
-    def flow(self, x, y=None, maxlen=None, batch_size=32, shuffle=True, seed=None):
+    def flow(self, x, y=None, maxlen=None, output_cbk=None, balanced=False,
+             batch_size=32, shuffle=True, seed=None):
         """Takes numpy data & label arrays, and generates batches of
             augmented data.
         # Arguments
                x: data. Should have rank 3.
                y: labels.
+               maxlen: Length of longest sequence. If None, maxlen is inferred from x (default: None).
+               output_cbk: Function called on batch of ys to produce desired output (default: None).
+               balanced: boolean. Draw samples (with replacement) assuming uniform distribution 
+               between classes. (default: False).               
                batch_size: int (default: 32).
                shuffle: boolean (default: True).
                seed: int (default: None).
@@ -151,6 +188,8 @@ class TimeSeriesDataGenerator(object):
         return TimeSeriesArrayIterator(
             x, y, self,
             maxlen=maxlen,
+            output_cbk=output_cbk,
+            balanced=balanced,
             batch_size=batch_size,
             shuffle=shuffle,
             seed=seed)
