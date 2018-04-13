@@ -18,7 +18,6 @@ from shutil import rmtree
 sys.path.extend([os.path.dirname(os.path.abspath('.'))])
 
 import numpy as np
-import numpy as np
 import pandas as pd
 import sklearn
 import scipy
@@ -40,7 +39,6 @@ from sklearn.pipeline import Pipeline
 import keras
 from keras import backend as K
 from keras.callbacks import CSVLogger
-from keras.callbacks import LearningRateScheduler
 from keras.callbacks import ModelCheckpoint
 from keras.callbacks import ReduceLROnPlateau
 
@@ -416,8 +414,8 @@ def init_callbacks(output_mode, plot_stats=True, save_model=False, save_stats=Fa
             else:
                 figsize = (25, 13)
 
-        plot_metrics = PlotLearning(update_step=plot_step, figsize=figsize)
-        callbacks.append(plot_metrics)
+#        plot_metrics = PlotLearning(update_step=plot_step, figsize=figsize)
+#        callbacks.append(plot_metrics)
         
     if stop_early:
         stopper = EarlyStopping(monitor='val_loss', min_delta=0, patience=10, mode='auto')
@@ -476,7 +474,8 @@ def build_model(
         hidden_fc=hidden_fc,
         recurrent_type=recurrent_type,
         n_relations=len(RELATIONS),
-        n_domains=len(DOMAINS),  
+        n_domains=len(DOMAINS),
+        seed=SHARED_SEED,
     )
     
     model = model_strategy_select[model_strategy](**model_parameters)
@@ -614,7 +613,7 @@ def run(conf):
 
         max_seq_len=max_timestep,
         feature_vector_size=n_features,        
-        recurrent_type='GRU',
+        recurrent_type='LSTM',
         hidden_fc=1,
         mode=output_mode,
         model_strategy=model_strategy,
