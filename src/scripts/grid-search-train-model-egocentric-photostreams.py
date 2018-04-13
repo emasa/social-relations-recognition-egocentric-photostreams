@@ -7,6 +7,7 @@ import functools
 import itertools
 import json
 import logging
+import math
 import os
 import pprint
 import sys
@@ -39,15 +40,16 @@ from sklearn.pipeline import Pipeline
 import keras
 from keras import backend as K
 from keras.callbacks import CSVLogger
+from keras.callbacks import LearningRateScheduler
 from keras.callbacks import ModelCheckpoint
 from keras.callbacks import ReduceLROnPlateau
-from keras.utils.vis_utils import model_to_dot
 
 import egosocial
 import egosocial.config
 from egosocial.core.attributes import AttributeSelector
 from egosocial.core.models import create_model_top_down
 from egosocial.core.models import create_model_bottom_up
+from egosocial.core.models import create_model_independent_outputs
 from egosocial.utils.filesystem import create_directory 
 from egosocial.utils.filesystem import check_directory
 from egosocial.utils.keras.autolosses import AutoMultiLossWrapper
@@ -334,13 +336,12 @@ class SocialClassifierWithPreComputedFeatures:
         
         if self.k_fold_splits > 1:
             # k-fold strategy
-            # search 50 times the number of splits, encourage diversity
+            # search x times the number of splits, encourage diversity
             # double the epsilon (more flexible)
             n_tries, group_size, epsilon = self.k_fold_splits * 50, self.val_size, 0.05
         else:
             # holdout strategy
-            # keep n_tries and epsilon same as train-test split
-            group_size = self.val_size
+            n_tries, group_size, epsilon = 1000, self.val_size, 0.05
         
         split_wrapper = StratifiedGroupShuffleSplitWrapper(
             GroupShuffleSplit(n_splits=n_tries, test_size=group_size, random_state=self.seed), 
@@ -452,6 +453,7 @@ def build_model(
     loss='categorical_crossentropy',    
     loss_weights='auto',
     metrics=None,
+    decay=1e-5,
 ):
     if feature_vector_size is None:
         global n_features
@@ -460,6 +462,7 @@ def build_model(
     model_strategy_select = {
         'top_down' : create_model_top_down,
         'bottom_up' : create_model_bottom_up,
+        'independent' : create_model_independent_outputs,
     }
     
     model_parameters = dict(
@@ -482,7 +485,7 @@ def build_model(
         
     model = compile_model(
         model,   
-        optimizer=keras.optimizers.Adam(learning_rate, decay=1e-5),
+        optimizer=keras.optimizers.Adam(learning_rate, decay=decay),
         loss=loss,
         loss_weights=loss_weights,
         metrics=metrics if metrics else ['accuracy'],
@@ -532,12 +535,24 @@ class TimeSeriesDataGeneratorBuilder(object):
             
         return generator
 
+    # learning rate schedule
+class StepDecay(object):
+
+    def __init__(self, initial_lr=0.01, drop_rate=0.5, epochs_drop=10.0):
+        self.initial_lr = initial_lr
+        self.drop_rate = drop_rate
+        self.epochs_drop = epochs_drop
+
+    def __call__(self, epoch):
+        lrate = self.initial_lr * math.pow(self.drop_rate, math.floor((1+epoch)/self.epochs_drop))
+        return lrate
+    
 def run(conf):    
     # # Loading precomputed features and labels
     helper = SocialClassifierWithPreComputedFeatures(
         conf.dataset_path, conf.features_dir, 
         test_size=0.2, 
-        k_fold_splits=3, 
+        k_fold_splits=3,
         val_size=0.2, # relative to training size
         seed=SHARED_SEED
     )
@@ -553,7 +568,7 @@ def run(conf):
     # # Parameters
     n_components, Q = conf.pca_components, conf.Q
     n_features = n_components * 9 + 6 + 2 + 1
-    max_timestep = helper.max_sequence_len()
+    max_timestep = helper.max_sequence_len()    
     
     helper._log.info('Number of pca components per attribute (for visual embeddings): {}'.format(n_components))
     helper._log.info('Q: {}'.format(Q))
@@ -566,6 +581,9 @@ def run(conf):
     output_mode = conf.output_mode
     helper._log.info('Output mode: {}'.format(output_mode))
 
+    model_strategy = conf.model_strategy
+    helper._log.info('Model strategy: {}'.format(model_strategy))
+    
     # # Grid search CV
     reduce_dim = Preprocessing(
         features_range=helper.features_range, 
@@ -577,12 +595,14 @@ def run(conf):
         seed=SHARED_SEED,
     )
 
-    # both_splitted mode uses relation fmeasure score 
-    single_output = 'domain' if output_mode == 'domain' else 'relation'
+    single_output = conf.single_output
     metric_suffix = 'fmeasure'
     
-    # used only if GridSearchCV scoring attribute is set to None 
-    metric_score = single_output + '_' + metric_suffix if output_mode == 'both_splitted' else metric_suffix
+    # used only if GridSearchCV scoring attribute is set to None
+    if output_mode in ('domain', 'relation'):
+        metric_score = metric_suffix
+    else:
+        metric_score = single_output + '_' + metric_suffix
 
     clf = KerasGeneratorClassifier(
         build_fn=build_model,
@@ -597,6 +617,7 @@ def run(conf):
         recurrent_type='GRU',
         hidden_fc=1,
         mode=output_mode,
+        model_strategy=model_strategy,
         
         metrics=['accuracy', fmeasure],
         verbose=1,
@@ -608,7 +629,10 @@ def run(conf):
     common_search_params = dict(
         estimator=pipeline, 
         cv=train_val_splits,
-        scoring=['accuracy', 'recall_weighted', 'precision_weighted', 'f1_weighted'],
+        scoring=
+        ['accuracy', 
+         'recall_weighted', 'precision_weighted', 'f1_weighted', 
+         'recall_macro', 'precision_macro', 'f1_macro'],
         refit=False,
         return_train_score=True,
         iid=False,
@@ -622,15 +646,23 @@ def run(conf):
         clf__epochs=conf.epochs,
         clf__units=conf.units,
         clf__l2_reg=conf.l2_reg,
-        clf__batch_size=conf.batch_size
+        clf__batch_size=conf.batch_size,
+        clf__decay=conf.lr_decay, 
     )
 
+    
     do_search = 'grid'    
     search_cv = GridSearchCV(
         param_grid=param_grid,
         **common_search_params,
     )
-
+    
+    callbacks = []
+    if conf.schedule_lr:
+        learning_rate = conf.lr[0]
+        lr_scheduler = LearningRateScheduler(StepDecay(initial_lr=learning_rate, drop_rate=0.5, epochs_drop=10))
+        callbacks.append(lr_scheduler)
+    
     X = helper.features
     if output_mode == 'domain':
         # domain specific-labels
@@ -638,14 +670,21 @@ def run(conf):
     else:
         y = helper._labels
 
-    search_result = search_cv.fit(X, y)
+        
+    fit_params = dict(
+        clf__verbose=1,
+        clf__callbacks=callbacks,
+    )
+        
+    search_result = search_cv.fit(X, y, **fit_params)
 
     training_dir = os.path.join(egosocial.config.TMP_DIR, 'training')
     create_directory(training_dir, 'Training')
 
     date_str = datetime.datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S')
-    results_path = os.path.join(training_dir, 
-                                '{}_{}_results_{}.pkl'.format(date_str, do_search, output_mode))
+    
+    file_name = '{}_{}_results_{}_{}.pkl'.format(date_str, do_search, output_mode, model_strategy)
+    results_path = os.path.join(training_dir, file_name)
 
     with open(results_path, 'wb') as file:
         pickle.dump(search_result.cv_results_, file, protocol=pickle.HIGHEST_PROTOCOL)
@@ -698,15 +737,37 @@ def main():
     parser.add_argument('--output_mode', required=False,
                         default='both_splitted',
                         choices=['both_splitted', 'domain', 'relation'],
-                        help='Model output. Default: both_splitted, uses multi-loss learning. Default: both_splitted.')
+                        help='Model output. Default: both_splitted, uses multi-loss learning.')
+    
+    parser.add_argument('--model_strategy', required=False,
+                        default='top_down',
+                        choices=['top_down', 'bottom_up', 'independent'],
+                        help='Model strategy. Default: top_down. Set output_mode=both_splitted for multi-loss learning.')
+    
+    parser.add_argument('--single_output', required=False,
+                        default='relation',
+                        choices=['relation', 'domain'],
+                        help='Metrics can be computed on a single output during grid-search. Default: relation.')
 
+    parser.add_argument('--schedule_lr', required=False,
+                        action='store_true',
+                        help='Whether use learning rate schedule. If enabled, --lr must be unique.')
+    
+    parser.add_argument('--lr_decay', required=False,
+                        default='1e-5',
+                        help='Learning rate decay on every update. Default: 1e-5. Accept multiple values separated by , (comma).')  
+    
     conf = parser.parse_args()
     conf.batch_size = parse_list_arg(conf.batch_size, parse_cbk=int)
     conf.epochs = parse_list_arg(conf.epochs, parse_cbk=int)
     conf.units = parse_list_arg(conf.units, parse_cbk=int)
     conf.lr = parse_list_arg(conf.lr, parse_cbk=float)
     conf.l2_reg = parse_list_arg(conf.l2_reg, parse_cbk=float)
-    conf.drop_rate = parse_list_arg(conf.drop_rate, parse_cbk=float)    
+    conf.drop_rate = parse_list_arg(conf.drop_rate, parse_cbk=float)
+    conf.lr_decay = parse_list_arg(conf.lr_decay, parse_cbk=float)    
+    
+    if conf.schedule_lr:
+        assert conf.schedule_lr and len(conf.lr) == 1
     
     if not os.path.isdir(egosocial.config.TMP_DIR):
         os.mkdir(egosocial.config.TMP_DIR)
