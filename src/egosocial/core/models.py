@@ -1,6 +1,8 @@
 # !/usr/bin/env python
 # -*- coding: utf-8 -*-
 
+import numpy as np
+
 import keras
 from keras.layers import Activation
 from keras.layers import BatchNormalization
@@ -17,7 +19,7 @@ from keras.models import Model
 from keras.regularizers import l2
 
 def create_model_top_down(max_seq_len, n_features, n_domains=None, n_relations=None, 
-                          units=128, drop_rate=0.5, rec_drop_rate=0.0, 
+                          units=128, drop_rate=0.5, rec_drop_rate=0.0, seed=None,
                           l2_reg=0.01, hidden_fc=0, mode=None, recurrent_type='LSTM'):
     mode = mode if mode else 'both_splitted'
     assert mode in ('both_splitted', 'relation', 'domain')
@@ -25,6 +27,9 @@ def create_model_top_down(max_seq_len, n_features, n_domains=None, n_relations=N
     recurrent_layers = dict(GRU=GRU, LSTM=LSTM)
     assert recurrent_type in recurrent_layers
     RecurrentLayer = recurrent_layers[recurrent_type]
+    
+    if seed is not None:
+        np.random.seed(seed)
     
     x = input_features = Input(shape=(max_seq_len, n_features), name='input')
     x = Masking()(x)
@@ -39,7 +44,8 @@ def create_model_top_down(max_seq_len, n_features, n_domains=None, n_relations=N
     x = Dropout(drop_rate)(x)
     
     for idx in range(hidden_fc):
-        x = Dense(units, 
+        x = Dense(units,
+                 activation='relu',
                  bias_regularizer=l2(l2_reg),
                  kernel_regularizer=l2(l2_reg),
                  name='fc' + str(idx))(x)
@@ -72,7 +78,7 @@ def create_model_top_down(max_seq_len, n_features, n_domains=None, n_relations=N
     return model
 
 def create_model_bottom_up(max_seq_len, n_features, n_domains=None, n_relations=None, 
-                          units=128, drop_rate=0.5, rec_drop_rate=0.0, 
+                          units=128, drop_rate=0.5, rec_drop_rate=0.0, seed=None,
                           l2_reg=0.01, hidden_fc=0, mode=None, recurrent_type='LSTM'):
     mode = mode if mode else 'both_splitted'
     assert mode in ('both_splitted', 'relation', 'domain')
@@ -80,6 +86,9 @@ def create_model_bottom_up(max_seq_len, n_features, n_domains=None, n_relations=
     recurrent_layers = dict(GRU=GRU, LSTM=LSTM)
     assert recurrent_type in recurrent_layers
     RecurrentLayer = recurrent_layers[recurrent_type]
+
+    if seed is not None:
+        np.random.seed(seed)    
     
     x = input_features = Input(shape=(max_seq_len, n_features), name='input')
     x = Masking()(x)
@@ -97,6 +106,7 @@ def create_model_bottom_up(max_seq_len, n_features, n_domains=None, n_relations=
     
     for idx in range(hidden_fc):
         x = Dense(units, 
+                 activation='relu',                  
                  bias_regularizer=l2(l2_reg),
                  kernel_regularizer=l2(l2_reg),
                  name='fc' + str(idx))(x)
@@ -116,6 +126,64 @@ def create_model_bottom_up(max_seq_len, n_features, n_domains=None, n_relations=
                        activation='linear',
                        use_bias=False, trainable=False,
                       )(relation)
+
+    if mode == 'both_splitted':
+        outputs = [domain, relation]
+    elif mode == 'domain':
+        outputs = [domain]
+    else:
+        outputs = [relation]
+    
+    model = Model(inputs=[input_features], outputs=outputs)
+    return model
+
+def create_model_independent_outputs(
+    max_seq_len, n_features, n_domains=None, n_relations=None, 
+    units=128, drop_rate=0.5, rec_drop_rate=0.0, seed=None,
+    l2_reg=0.01, hidden_fc=0, mode=None, recurrent_type='LSTM'):
+    mode = mode if mode else 'both_splitted'
+    assert mode in ('both_splitted', 'relation', 'domain')
+    
+    recurrent_layers = dict(GRU=GRU, LSTM=LSTM)
+    assert recurrent_type in recurrent_layers
+    RecurrentLayer = recurrent_layers[recurrent_type]
+
+    if seed is not None:
+        np.random.seed(seed)
+        
+    x = input_features = Input(shape=(max_seq_len, n_features), name='input')
+    x = Masking()(x)
+    
+    x = RecurrentLayer(units, 
+             bias_regularizer=l2(l2_reg),
+             kernel_regularizer=l2(l2_reg),
+             dropout=rec_drop_rate,
+             recurrent_dropout=rec_drop_rate,
+             unroll=True,
+             name=recurrent_type)(x)
+    x = Dropout(drop_rate)(x)
+    
+    for idx in range(hidden_fc):
+        x = Dense(units, 
+                 activation='relu',                  
+                 bias_regularizer=l2(l2_reg),
+                 kernel_regularizer=l2(l2_reg),
+                 name='fc' + str(idx))(x)
+        x = Dropout(drop_rate)(x)
+    
+    if mode != 'relation':
+        domain = Dense(n_domains, name='domain',
+                       activation='softmax',
+                       bias_regularizer=l2(l2_reg),
+                       kernel_regularizer=l2(l2_reg),
+                      )(x)
+
+    if mode != 'domain':
+        relation = Dense(n_relations, name='relation',
+                         activation='softmax',
+                         bias_regularizer=l2(l2_reg),
+                         kernel_regularizer=l2(l2_reg),
+                        )(x)
 
     if mode == 'both_splitted':
         outputs = [domain, relation]
