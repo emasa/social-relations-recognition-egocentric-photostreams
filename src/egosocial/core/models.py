@@ -33,8 +33,8 @@ def create_model_top_down(max_seq_len, n_features, n_domains=None, n_relations=N
     
     x = input_features = Input(shape=(max_seq_len, n_features), name='input')
     
-    x = BatchNormalization()(x) if batch_norm else x
     x = Masking()(x)
+    x = BatchNormalization()(x) if batch_norm else x
     
     x = RecurrentLayer(units, 
              bias_regularizer=l2(l2_reg),
