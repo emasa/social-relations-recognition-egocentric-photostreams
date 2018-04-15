@@ -157,7 +157,7 @@ def create_model_bottom_up(max_seq_len, n_features, n_domains=None, n_relations=
 
 def create_model_independent_outputs(
     max_seq_len, n_features, n_domains=None, n_relations=None, 
-    units=128, drop_rate=0.5, rec_drop_rate=0.0, seed=None,
+    units=128, drop_rate=0.5, rec_drop_rate=0.0, seed=None, batch_norm=False,
     l2_reg=0.01, hidden_fc=0, mode=None, recurrent_type='LSTM'):
     mode = mode if mode else 'both_splitted'
     assert mode in ('both_splitted', 'relation', 'domain')
