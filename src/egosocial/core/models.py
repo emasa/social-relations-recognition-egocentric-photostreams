@@ -46,18 +46,18 @@ def create_model_top_down(max_seq_len, n_features, n_domains=None, n_relations=N
     
     x = BatchNormalization()(x) if batch_norm else x    
     x = Dropout(drop_rate)(x)
-    
-    for idx in range(hidden_fc):
-        x = Dense(units,
-                 activation='relu',
-                 bias_regularizer=l2(l2_reg),
-                 kernel_regularizer=l2(l2_reg),
-                 name='fc' + str(idx))(x)
         
-        x = BatchNormalization()(x) if batch_norm else x        
-        x = Dropout(drop_rate)(x)
-    
     if mode != 'relation':
+        for idx in range(hidden_fc):
+            x = Dense(units,
+                     activation='relu',
+                     bias_regularizer=l2(l2_reg),
+                     kernel_regularizer=l2(l2_reg),
+                     name='fc_d_' + str(idx))(x)
+
+            x = BatchNormalization()(x) if batch_norm else x        
+            x = Dropout(drop_rate)(x)
+        
         domain = Dense(n_domains, name='domain',
                        activation='softmax',
                        bias_regularizer=l2(l2_reg),
@@ -67,6 +67,16 @@ def create_model_top_down(max_seq_len, n_features, n_domains=None, n_relations=N
         x = keras.layers.concatenate([x, domain])
 
     if mode != 'domain':
+        for idx in range(hidden_fc):
+            x = Dense(units,
+                     activation='relu',
+                     bias_regularizer=l2(l2_reg),
+                     kernel_regularizer=l2(l2_reg),
+                     name='fc_r_' + str(idx))(x)
+
+            x = BatchNormalization()(x) if batch_norm else x        
+            x = Dropout(drop_rate)(x)
+        
         relation = Dense(n_relations, name='relation',
                          activation='softmax',
                          bias_regularizer=l2(l2_reg),
@@ -172,26 +182,38 @@ def create_model_independent_outputs(
              name=recurrent_type)(x)
     
     x = BatchNormalization()(x) if batch_norm else x    
-    x = Dropout(drop_rate)(x)
+    shared_x = Dropout(drop_rate)(x)
     
-    for idx in range(hidden_fc):
-        x = Dense(units, 
-                 activation='relu',                  
-                 bias_regularizer=l2(l2_reg),
-                 kernel_regularizer=l2(l2_reg),
-                 name='fc' + str(idx))(x)
-        
-        x = BatchNormalization()(x) if batch_norm else x        
-        x = Dropout(drop_rate)(x)
-    
+    x = shared_x
     if mode != 'relation':
+        for idx in range(hidden_fc):
+            x = Dense(units,
+                     activation='relu',
+                     bias_regularizer=l2(l2_reg),
+                     kernel_regularizer=l2(l2_reg),
+                     name='fc_d_' + str(idx))(x)
+
+            x = BatchNormalization()(x) if batch_norm else x        
+            x = Dropout(drop_rate)(x)
+            
         domain = Dense(n_domains, name='domain',
                        activation='softmax',
                        bias_regularizer=l2(l2_reg),
                        kernel_regularizer=l2(l2_reg),
                       )(x)
 
+    x = shared_x        
     if mode != 'domain':
+        for idx in range(hidden_fc):
+            x = Dense(units,
+                     activation='relu',
+                     bias_regularizer=l2(l2_reg),
+                     kernel_regularizer=l2(l2_reg),
+                     name='fc_r_' + str(idx))(x)
+
+            x = BatchNormalization()(x) if batch_norm else x        
+            x = Dropout(drop_rate)(x)
+            
         relation = Dense(n_relations, name='relation',
                          activation='softmax',
                          bias_regularizer=l2(l2_reg),
