@@ -19,28 +19,30 @@ sys.path.extend([os.path.dirname(os.path.abspath('.'))])
 
 import numpy as np
 import pandas as pd
-import sklearn
 import scipy
 
+import sklearn
 from sklearn.base import BaseEstimator
 from sklearn.decomposition import PCA
+from sklearn.metrics import make_scorer
 from sklearn.model_selection import StratifiedKFold
 from sklearn.model_selection import StratifiedShuffleSplit
 from sklearn.model_selection import LeavePGroupsOut
 from sklearn.model_selection import GroupShuffleSplit
-from sklearn.preprocessing import Normalizer
-from sklearn.preprocessing import StandardScaler
-from sklearn.preprocessing import MinMaxScaler
 from sklearn.model_selection import GridSearchCV
 from sklearn.model_selection import RandomizedSearchCV
 from sklearn.model_selection import ParameterGrid
 from sklearn.pipeline import Pipeline
+from sklearn.preprocessing import Normalizer
+from sklearn.preprocessing import StandardScaler
+from sklearn.preprocessing import MinMaxScaler
 
 import keras
 from keras import backend as K
 from keras.callbacks import CSVLogger
 from keras.callbacks import ModelCheckpoint
 from keras.callbacks import ReduceLROnPlateau
+from keras.callbacks import LearningRateScheduler
 
 import egosocial
 import egosocial.config
@@ -52,7 +54,6 @@ from egosocial.utils.filesystem import create_directory
 from egosocial.utils.filesystem import check_directory
 from egosocial.utils.keras.autolosses import AutoMultiLossWrapper
 from egosocial.utils.keras.backend import limit_gpu_allocation_tensorflow
-from egosocial.utils.keras.callbacks import PlotLearning
 from egosocial.utils.keras.metrics import precision
 from egosocial.utils.keras.metrics import recall
 from egosocial.utils.keras.metrics import fmeasure
@@ -545,7 +546,29 @@ class StepDecay(object):
     def __call__(self, epoch):
         lrate = self.initial_lr * math.pow(self.drop_rate, math.floor((1+epoch)/self.epochs_drop))
         return lrate
+
+def domain_score(score_func, average=None, name=None):
+    def decorated_score(y_true, y_pred, **kwargs):
+        y_true = relation_to_domain_vec(y_true)
+        y_pred = relation_to_domain_vec(y_pred)
+        if average:
+            return score_func(y_true, y_pred, average=average, **kwargs)
+        else:
+            return score_func(y_true, y_pred, **kwargs)
     
+    if name:
+        decorated_score.__name__ = name
+
+    return decorated_score    
+
+dom_accuracy = domain_score(sklearn.metrics.accuracy_score, name='dom_accuracy')
+dom_recall_weighted = domain_score(sklearn.metrics.recall_score, average='weighted', name='dom_recall_weighted')
+dom_precision_weighted = domain_score(sklearn.metrics.precision_score, average='weighted', name='dom_precision_weighted')
+dom_f1_weighted = domain_score(sklearn.metrics.f1_score, average='weighted', name='dom_f1_weighted')
+dom_recall_macro = domain_score(sklearn.metrics.recall_score, average='macro', name='dom_recall_macro')
+dom_precision_macro = domain_score(sklearn.metrics.precision_score, average='macro', name='dom_precision_macro')
+dom_f1_macro = domain_score(sklearn.metrics.f1_score, average='macro', name='dom_f1_macro')
+
 def run(conf):    
     # # Loading precomputed features and labels
     helper = SocialClassifierWithPreComputedFeatures(
@@ -594,7 +617,11 @@ def run(conf):
         seed=SHARED_SEED,
     )
 
-    single_output = conf.single_output
+    if output_mode == 'domain':
+        single_output = 'domain'
+    else:
+        single_output = 'relation'
+
     metric_suffix = 'fmeasure'
     
     # used only if GridSearchCV scoring attribute is set to None
@@ -609,7 +636,7 @@ def run(conf):
         output_mode=output_mode,
         metric_score=metric_score,
         single_output=single_output,
-        balanced=True,        
+        balanced=True, # compute class_weights internally
 
         max_seq_len=max_timestep,
         feature_vector_size=n_features,        
@@ -618,20 +645,28 @@ def run(conf):
         mode=output_mode,
         model_strategy=model_strategy,
         
-        metrics=['accuracy', fmeasure],
+        metrics=[fmeasure],
         verbose=1,
         workers=2,
     )
 
     pipeline = Pipeline([('reduce_dim', reduce_dim), ('clf', clf)])
 
+    scoring = ['accuracy', 
+              'recall_weighted', 'precision_weighted', 'f1_weighted', 
+              'recall_macro', 'precision_macro', 'f1_macro']
+
+    # multi-output modes
+    if output_mode == 'both_splitted':
+        dom_scoring = [dom_accuracy, 
+                       dom_recall_weighted, dom_precision_weighted, dom_f1_weighted, 
+                       dom_recall_macro, dom_precision_macro, dom_f1_macro]
+        scoring.extend(dom_scoring)
+    
     common_search_params = dict(
         estimator=pipeline, 
         cv=train_val_splits,
-        scoring=
-        ['accuracy', 
-         'recall_weighted', 'precision_weighted', 'f1_weighted', 
-         'recall_macro', 'precision_macro', 'f1_macro'],
+        scoring=scoring,
         refit=False,
         return_train_score=True,
         iid=False,
@@ -648,7 +683,6 @@ def run(conf):
         clf__batch_size=conf.batch_size,
         clf__decay=conf.lr_decay, 
     )
-
     
     do_search = 'grid'    
     search_cv = GridSearchCV(
@@ -668,7 +702,6 @@ def run(conf):
         y = relation_to_domain_vec(helper._labels)
     else:
         y = helper._labels
-
         
     fit_params = dict(
         clf__verbose=1,
@@ -742,11 +775,6 @@ def main():
                         default='top_down',
                         choices=['top_down', 'bottom_up', 'independent'],
                         help='Model strategy. Default: top_down. Set output_mode=both_splitted for multi-loss learning.')
-    
-    parser.add_argument('--single_output', required=False,
-                        default='relation',
-                        choices=['relation', 'domain'],
-                        help='Metrics can be computed on a single output during grid-search. Default: relation.')
 
     parser.add_argument('--schedule_lr', required=False,
                         action='store_true',
@@ -777,8 +805,7 @@ def main():
     # # Limit GPU memory allocation with Tensorflow
     limit_memory = True
     if limit_memory and K.backend() == 'tensorflow':
-        memory_ratio = 0.3
-        limit_gpu_allocation_tensorflow(memory_ratio)   
+        limit_gpu_allocation_tensorflow()
         
     run(conf)
 
