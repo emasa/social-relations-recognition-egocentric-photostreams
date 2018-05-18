@@ -19,7 +19,7 @@ from keras.models import Model
 from keras.regularizers import l2
 
 def create_model_top_down(max_seq_len, n_features, n_domains=None, n_relations=None, 
-                          units=128, drop_rate=0.5, rec_drop_rate=0.0, seed=None,
+                          units=128, drop_rate=0.5, rec_drop_rate=0.0, seed=None, batch_norm=False,
                           l2_reg=0.01, hidden_fc=0, mode=None, recurrent_type='LSTM'):
     mode = mode if mode else 'both_splitted'
     assert mode in ('both_splitted', 'relation', 'domain')
@@ -34,6 +34,8 @@ def create_model_top_down(max_seq_len, n_features, n_domains=None, n_relations=N
     x = input_features = Input(shape=(max_seq_len, n_features), name='input')
     x = Masking()(x)
     
+    x = BatchNormalization()(x) if batch_norm else x
+    
     x = RecurrentLayer(units, 
              bias_regularizer=l2(l2_reg),
              kernel_regularizer=l2(l2_reg),
@@ -41,6 +43,9 @@ def create_model_top_down(max_seq_len, n_features, n_domains=None, n_relations=N
              recurrent_dropout=rec_drop_rate,
              unroll=True,
              name=recurrent_type)(x)
+
+    x = BatchNormalization()(x) if batch_norm else x    
+    
     x = Dropout(drop_rate)(x)
     
     for idx in range(hidden_fc):
@@ -49,6 +54,9 @@ def create_model_top_down(max_seq_len, n_features, n_domains=None, n_relations=N
                  bias_regularizer=l2(l2_reg),
                  kernel_regularizer=l2(l2_reg),
                  name='fc' + str(idx))(x)
+
+        x = BatchNormalization()(x) if batch_norm else x        
+        
         x = Dropout(drop_rate)(x)
     
     if mode != 'relation':
@@ -78,7 +86,7 @@ def create_model_top_down(max_seq_len, n_features, n_domains=None, n_relations=N
     return model
 
 def create_model_bottom_up(max_seq_len, n_features, n_domains=None, n_relations=None, 
-                          units=128, drop_rate=0.5, rec_drop_rate=0.0, seed=None,
+                          units=128, drop_rate=0.5, rec_drop_rate=0.0, seed=None, batch_norm=False,
                           l2_reg=0.01, hidden_fc=0, mode=None, recurrent_type='LSTM'):
     mode = mode if mode else 'both_splitted'
     assert mode in ('both_splitted', 'relation', 'domain')
@@ -92,7 +100,8 @@ def create_model_bottom_up(max_seq_len, n_features, n_domains=None, n_relations=
     
     x = input_features = Input(shape=(max_seq_len, n_features), name='input')
     x = Masking()(x)
-    x = BatchNormalization()(x)
+    
+    x = BatchNormalization()(x) if batch_norm else x
     
     x = RecurrentLayer(units,
              bias_regularizer=l2(l2_reg),
@@ -101,7 +110,9 @@ def create_model_bottom_up(max_seq_len, n_features, n_domains=None, n_relations=
              recurrent_dropout=rec_drop_rate,
              unroll=True,                       
              name=recurrent_type)(x)
-    x = BatchNormalization()(x)    
+    
+    x = BatchNormalization()(x) if batch_norm else x
+    
     x = Dropout(drop_rate, name='dropout_lstm')(x)
     
     for idx in range(hidden_fc):
@@ -110,7 +121,7 @@ def create_model_bottom_up(max_seq_len, n_features, n_domains=None, n_relations=
                  bias_regularizer=l2(l2_reg),
                  kernel_regularizer=l2(l2_reg),
                  name='fc' + str(idx))(x)
-        x = BatchNormalization()(x)
+        x = BatchNormalization()(x) if batch_norm else x
         x = Dropout(drop_rate)(x)
     
     # domain is a lineal combination of relation
@@ -124,7 +135,7 @@ def create_model_bottom_up(max_seq_len, n_features, n_domains=None, n_relations=
         # use domain knowledge, weights are frozen
         domain = Dense(n_domains, name='domain',
                        activation='linear',
-                       use_bias=False, trainable=False,
+                       use_bias=False, trainable=True,
                       )(relation)
 
     if mode == 'both_splitted':
@@ -139,7 +150,7 @@ def create_model_bottom_up(max_seq_len, n_features, n_domains=None, n_relations=
 
 def create_model_independent_outputs(
     max_seq_len, n_features, n_domains=None, n_relations=None, 
-    units=128, drop_rate=0.5, rec_drop_rate=0.0, seed=None,
+    units=128, drop_rate=0.5, rec_drop_rate=0.0, seed=None, batch_norm=False,
     l2_reg=0.01, hidden_fc=0, mode=None, recurrent_type='LSTM'):
     mode = mode if mode else 'both_splitted'
     assert mode in ('both_splitted', 'relation', 'domain')
@@ -154,6 +165,8 @@ def create_model_independent_outputs(
     x = input_features = Input(shape=(max_seq_len, n_features), name='input')
     x = Masking()(x)
     
+    x = BatchNormalization()(x) if batch_norm else x
+    
     x = RecurrentLayer(units, 
              bias_regularizer=l2(l2_reg),
              kernel_regularizer=l2(l2_reg),
@@ -161,6 +174,9 @@ def create_model_independent_outputs(
              recurrent_dropout=rec_drop_rate,
              unroll=True,
              name=recurrent_type)(x)
+
+    x = BatchNormalization()(x) if batch_norm else x
+    
     x = Dropout(drop_rate)(x)
     
     for idx in range(hidden_fc):
@@ -169,6 +185,9 @@ def create_model_independent_outputs(
                  bias_regularizer=l2(l2_reg),
                  kernel_regularizer=l2(l2_reg),
                  name='fc' + str(idx))(x)
+
+        x = BatchNormalization()(x) if batch_norm else x
+        
         x = Dropout(drop_rate)(x)
     
     if mode != 'relation':
